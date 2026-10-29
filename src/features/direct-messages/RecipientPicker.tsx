@@ -216,7 +216,8 @@ export function RecipientPicker({
       (person) =>
         person.pubkey !== viewer &&
         !excludedPubkeys.includes(person.pubkey) &&
-        (!person.isAgent || controlled.has(person.pubkey)) &&
+        // Agents still loading are not yet known to be uncontrolled.
+        (!person.isAgent || controlled.has(person.pubkey) || agents.pending) &&
         !selected.some((item) => item.pubkey === person.pubkey),
     );
     const picked = usage.pick(
@@ -302,6 +303,7 @@ export function RecipientPicker({
     };
   }, [
     agents.identities,
+    agents.pending,
     channels,
     profiles,
     directory.people,
@@ -344,10 +346,15 @@ export function RecipientPicker({
   // Space completes like an @ mention: only for one exact name, and only when
   // no longer name continues it ("Avery" waits while "Avery Chen" exists).
   // A search still running, failed, or with more pages could hold that longer
-  // name or a namesake, so Space waits for the full list. A verified person
-  // found by an editable profile name is that name's namesake too.
+  // name or a namesake, as could agents still loading, so Space waits for both.
+  // A verified person found by an editable profile name is that name's
+  // namesake too.
   const exactRecipient = () =>
-    listed && !directory.loading && !directory.error && !directory.tooShort
+    listed &&
+    !directory.loading &&
+    !directory.error &&
+    !directory.tooShort &&
+    !agents.pending
       ? exactName(
           eligible,
           (person) => [...namesOf(person), ...(person.profileNames ?? [])],
@@ -378,7 +385,7 @@ export function RecipientPicker({
       selection.current.length >= maxRecipients ||
       person.pubkey === session.viewer ||
       excludedPubkeys.includes(person.pubkey) ||
-      (person.isAgent && !controlled.has(person.pubkey)) ||
+      (person.isAgent && !controlled.has(person.pubkey) && !agents.pending) ||
       selection.current.some((item) => item.pubkey === person.pubkey)
     )
       return;
@@ -682,6 +689,7 @@ export function RecipientPicker({
                   </Virtualizer>
                   {!directory.loading &&
                     !directory.error &&
+                    !agents.pending &&
                     !candidates.length && (
                       <p>
                         {directory.tooShort
