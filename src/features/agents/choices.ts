@@ -55,6 +55,8 @@ export type AgentChoicesSnapshot = Omit<AgentLibrarySnapshot, "identities"> & {
   identities: readonly Choice[];
   /** Forward-looking choices: `identities` minus known-archived agents. */
   selectable: readonly Choice[];
+  /** `selectable` that may join a channel: library rows need a current read. */
+  admissible: readonly Choice[];
   /** Archive evidence that produced `selectable`; templates require it ready. */
   archives: IdentityArchiveSnapshot;
   /** Templates mirror Agents, including source readiness and errors. */
@@ -94,6 +96,7 @@ export function createAgentChoices({
   });
   const empty: AgentChoicesSnapshot = {
     selectable: [],
+    admissible: [],
     archives: noArchives,
     status: "unavailable",
     templates: {
@@ -182,6 +185,9 @@ export function createAgentChoices({
           : local?.status === "loading",
       ...(templateSource.error ? { error: templateSource.error } : {}),
     };
+    const selectable = [...choices.values()].filter(
+      (agent) => !archiveHides(archives, agent.pubkey, viewer),
+    );
     const value: AgentChoicesSnapshot = {
       templates,
       status: ready
@@ -204,8 +210,9 @@ export function createAgentChoices({
         (!local || local.status === "ready" || local.status === "unavailable"),
       definitions: legacy.definitions,
       identities: [...choices.values()],
-      selectable: [...choices.values()].filter(
-        (agent) => !archiveHides(archives, agent.pubkey, viewer),
+      selectable,
+      admissible: selectable.filter(
+        (agent) => agent.managed || legacy.status === "ready",
       ),
       archives: archive,
       ...(errors.length ? { error: errors.join(" ") } : {}),
@@ -254,7 +261,7 @@ export function createAgentChoices({
       if (signal.aborted) return;
       await Promise.all([
         usesLegacy(source) ? library.refresh({ fresh }) : undefined,
-        usesLocal(source) ? native?.refresh() : undefined,
+        usesLocal(source) ? native?.refresh({ fresh }) : undefined,
         // Archive reads stay lazy; templates always need fresh evidence.
         source === "templates" || archives?.snapshot().status !== "idle"
           ? archives?.refresh()
