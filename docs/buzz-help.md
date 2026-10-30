@@ -160,10 +160,12 @@ revokes all of them, and a pairing unused for 30 days expires.
 
 ## Conversations and communities
 
-- Each reaction emoji has its own capsule. Hover or focus it to see everyone
-  who reacted. Large lists scroll within the preview. With a keyboard, Tab into
-  the list to scroll it; Escape dismisses the preview. Clicking the emoji adds
-  or removes your reaction. Capsules you reacted with are tinted and outlined.
+- Each reaction emoji has its own capsule. Hover or focus it to see who reacted.
+  When more than three people reacted, choose **and N others** to list everyone,
+  and choose a person to open their profile. With a keyboard, Tab from the emoji
+  to **and N others**; Escape closes the list, then the preview. Clicking the
+  emoji adds or removes your reaction. Capsules you reacted with are tinted and
+  outlined.
 - With **Voice Notes** enabled, use the microphone in the composer to record
   and attach a voice note. Sending requires ffmpeg on the host computer. Sent
   notes support playback and seeking; a note's duration appears once it
