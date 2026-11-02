@@ -1,16 +1,26 @@
 import type { MessageWidth } from "../shared/theme/service";
 import styles from "./AppearancePreview.module.css";
 
+const FRAME = {
+  "data-color-mode": "dark",
+  "data-theme-frame": "",
+} as const;
+
 /** Decorative app sketch using the same semantic colors as the live interface. */
 export function AppearancePreview({
   messageWidth,
+  framed = false,
 }: {
   messageWidth: MessageWidth;
+  framed?: boolean;
 }) {
   return (
     <figure className={styles.preview} aria-label="Appearance preview">
       <div className={styles.scene} inert aria-hidden="true">
-        <div className={styles.sidebar}>
+        <div
+          {...(framed ? FRAME : undefined)}
+          className={`${styles.sidebar} ${framed ? "dark" : ""}`}
+        >
           <div className={styles.workspace}>
             <i />
             <span />
@@ -55,7 +65,7 @@ export function AppearancePreview({
         </div>
       </div>
       <figcaption className="sr-only">
-        Illustrated preview of your current mode, accent, contrast, and{" "}
+        Illustrated preview of your current theme, mode, accent, contrast, and{" "}
         {messageWidth} message width.
       </figcaption>
     </figure>
