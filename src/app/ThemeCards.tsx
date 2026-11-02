@@ -35,6 +35,7 @@ function ThemePreview({
       focusable="false"
       className={`buzz-theme-preview ${mode}`}
       data-theme={theme}
+      data-theme-reset=""
       data-accent={accent}
       data-color-mode={mode}
     >
