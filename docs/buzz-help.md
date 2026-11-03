@@ -587,8 +587,9 @@ confirmation.
   what that agent is watching and whether Attention is on for this device. A
   mention can still wake an agent when Attention is off; turning Attention on does not grant new access.
   An event watch hears the channels its agent may read, including public channels
-  the agent has not joined, but its turns run only in channels the agent is a
-  member of. On macOS and Linux, watched commands stop when their Buzz process exits.
+  the agent has not joined. A watch's delivery channel must be one the agent is
+  a member of; the relay decides where the agent may post. On macOS and Linux,
+  watched commands stop when their Buzz process exits.
   During a handoff between Buzz builds, the new copy waits for the previous
   command to stop, then continues the watch.
 - **Solo workers**: where a plugin offers it, an owner can authorize one agent to
