@@ -309,7 +309,7 @@ that agent in Buzz; they do not notify the external app through this connection.
   to unblock Send; your typed message stays in the composer. Do not promise
   support for every file type or size.
 - **Fullscreen media** temporarily hides background notices, including ready
-  updates. Close the viewer to use those notices again.
+  updates. Close the viewer to use a ready update notice again.
 - **Emoji suggestions** appear when you type `:` and an emoji name. If a name
   is shortened with an ellipsis, hover over it or use the arrow keys to select
   it and see the full name in a tooltip.
