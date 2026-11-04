@@ -1198,6 +1198,18 @@ function ChannelWorkspace({
         target: targetKey(fallback),
       };
   };
+  // Member lists open profiles and DMs through this page. Side-tab Solo
+  // toolbars render inside useConversationTabs, before canOpenLink and
+  // openLink are declared, so these read them only when called.
+  const memberLinks = {
+    canOpenLink: (target: string) => canOpenLink(target),
+    onOpenLink: (url: string, returnFocus?: HTMLElement) =>
+      openLink(url, { returnFocus }),
+    onOpenConversation:
+      navigator && viewer
+        ? (id: string) => openLink(`buzz://channel/${encodeURIComponent(id)}`)
+        : undefined,
+  };
   const secondary = useConversationTabs({
     state: tabState,
     relay,
@@ -1219,6 +1231,7 @@ function ChannelWorkspace({
           channel={channel}
           navigator={navigator}
           signal={navigation?.signal}
+          {...memberLinks}
           onOpen={open}
           onLifecycle={(action, trigger) =>
             handoff?.openLifecycle(channel, action, trigger, navigation?.signal)
@@ -2151,14 +2164,8 @@ function ChannelWorkspace({
               ? membersTrigger
               : membersHeaderTrigger
           }
-          canOpenLink={canOpenLink}
           {...(agents ? { agents } : {})}
-          onOpenLink={(url, returnFocus) => openLink(url, { returnFocus })}
-          onOpenConversation={
-            navigator && viewer
-              ? (id) => openLink(`buzz://channel/${encodeURIComponent(id)}`)
-              : undefined
-          }
+          {...memberLinks}
         />
       )}
       <Panel
@@ -2266,6 +2273,7 @@ function ChannelWorkspace({
                   channel={current}
                   navigator={navigator}
                   signal={navigation?.signal}
+                  {...memberLinks}
                   onConvert={(trigger) =>
                     setConversion({
                       channelId: current.id,
