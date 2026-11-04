@@ -340,6 +340,7 @@ async function setup({
     recover: fake.recover,
     unrouted: fake.unrouted,
     learned: fake.learned,
+    opened: fake.opened,
     pending: fake.pending,
     memories: fake.memories,
     archives: fake.archives,
@@ -8628,18 +8629,97 @@ it.each([
   },
 );
 
+it("answers a replayed mention that waited for room as it arrived, though its channel was closed since", async () => {
+  vi.useFakeTimers({ now: 1_000_000_000 });
+  try {
+    const { service, run, emit, attended, opened } = await setup();
+    await service.create({ type: "example/echo", name: "Echo" });
+    await service.save(bot, {
+      attentionEnabled: true,
+      attention: {
+        "watch/plaza": {
+          type: "event",
+          interest_id: "default",
+          enabled: true,
+          since: 1,
+          channels: [plaza],
+          kinds: [7],
+        },
+      },
+    });
+    await vi.waitFor(() => expect([...attended].flat()).toContain(plaza));
+    // The owner has plaza open, so the app hears it for the owner.
+    opened.add(plaza);
+    const now = Math.floor(Date.now() / 1000);
+    const ids = Array.from({ length: 70 }, (_, index) => `m${index}x`);
+    emit({
+      replay: true,
+      events: [
+        ...ids.map((id) =>
+          event(id, {
+            created_at: now + 1,
+            tags: [
+              ["h", channel],
+              ["p", bot],
+            ],
+          }),
+        ),
+        event("plaza", {
+          created_at: now + 1,
+          tags: [
+            ["h", plaza],
+            ["p", bot],
+          ],
+        }),
+      ],
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    // Some wait for the next rate window, plaza's last among them.
+    expect(woke(run)).not.toContain("plaza");
+    expect(run.mock.calls.length).toBeLessThan(ids.length + 1);
+    // Closed while it waits; the watch still keeps plaza live.
+    opened.delete(plaza);
+    await vi.advanceTimersByTimeAsync(70_000);
+    expect(woke(run)).toContain("plaza");
+    expect(
+      run.mock.calls.find(
+        ([delivery]) =>
+          delivery.trigger.type === "mention" &&
+          delivery.trigger.event.id.startsWith("plaza"),
+      ),
+    ).toBeDefined();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it.each([
-  ["the owner's app knew it", false, "mention"],
-  ["only agents' lookups found it", true, "catch-up"],
+  ["the owner's app knew it", false, false, "mention"],
+  ["only agents' lookups found it", true, false, "catch-up"],
+  [
+    "only agents' lookups found it when read, though the owner's did since",
+    true,
+    true,
+    "catch-up",
+  ],
 ] as const)(
   "answers a mention catch-up reads in a public channel only if %s",
-  async (_, learnedOnly, type) => {
+  async (_, learnedOnly, learnedSince, type) => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       const start = nowSeconds();
-      const { service, run, history, recover, learned } = await setup({
+      const { service, run, history, recover, learned, session } = await setup({
         identities: [echo],
       });
+      if (learnedSince) {
+        // The owner's own lookup finds it right after the read asks.
+        const unattended = session.unattended.bind(session);
+        vi.spyOn(session, "unattended").mockImplementation((id, live) => {
+          const result = unattended(id, live);
+          if (id === plaza && !live) learned.delete(plaza);
+          return result;
+        });
+      }
       await service.save(bot, {
         attentionEnabled: true,
         attention: {

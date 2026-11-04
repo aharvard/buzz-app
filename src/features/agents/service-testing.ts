@@ -104,6 +104,8 @@ export function fakeRelay(origin = "https://relay.example.test") {
   const unrouted = new Set<string>();
   /** Channels it knows only from agents' lookups. */
   const learned = new Set<string>();
+  /** Channels the viewer has open, live as the list's are. */
+  const opened = new Set<string>();
   const statuses = new Set<() => void>();
   /** The viewer's kind 30177 records the community returns. */
   const listed: RelayEvent[] = [];
@@ -178,6 +180,7 @@ export function fakeRelay(origin = "https://relay.example.test") {
     // The list's channels are the viewer's; attended ones live only for agents.
     unattended: (id: string, live: boolean) =>
       rows.some((row) => row.id === id) ||
+      opened.has(id) ||
       (!learned.has(id) &&
         (!live || ![...attended].some((ids) => ids.includes(id)))),
     live: {
@@ -282,6 +285,7 @@ export function fakeRelay(origin = "https://relay.example.test") {
     unrouted,
     pending,
     learned,
+    opened,
     history,
     memories,
     session,

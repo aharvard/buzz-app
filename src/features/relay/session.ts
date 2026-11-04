@@ -712,10 +712,10 @@ export function createRelaySession(
         ),
       ];
       // What only `resolveChannels` looks up is known for agents alone.
-      if (!filters.every((filter) => resolves(filter, false))) {
+      const viewers = filters.every((filter) => resolves(filter, false));
+      if (!viewers)
         for (const id of ids)
           if (!channels.queries.get?.(id)) learnedForAgents.add(id);
-      } else for (const id of ids) learnedForAgents.delete(id);
       await channels.queries.resolve?.(ids, settings);
       // A read of every channel keeps what visibility keeps below.
       if (!broad)
@@ -729,6 +729,9 @@ export function createRelaySession(
       settings?.signal?.throwIfAborted();
       if (closed || epoch !== accessEpoch)
         throw new DOMException("Stale relay search", "AbortError");
+      // Known to the viewer's own reads only once their lookup succeeded: one
+      // that failed would have left the channel unknown without agents.
+      if (viewers) for (const id of ids) learnedForAgents.delete(id);
     }
     const visible = accept(
       events,

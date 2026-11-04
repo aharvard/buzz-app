@@ -257,6 +257,10 @@ type PendingEvent = {
   event: RelayEvent;
   channelId?: string;
   done?: ReadonlySet<string>;
+  /** Whether it arrived as it would have with no watch keeping channels live
+   * (`unattended`), kept from arrival so a channel closed while it waits does
+   * not change what it wakes. */
+  addressable: boolean;
 };
 type Heard = { triggers: Trigger[]; held?: true; discarded?: string[] };
 
@@ -551,6 +555,9 @@ export type RunnerHost = {
 };
 
 export class AgentRunners {
+  /** Whether each event catch-up read may address its agent, as `unattended`
+   * said when it was read: one waiting for room keeps what it arrived as. */
+  private readonly readAddressable = new WeakMap<RelayEvent, boolean>();
   private readonly sourceJobs = new Map<Job, string>();
   private readonly failedSources = new WeakSet<AttentionObject>();
   /** A terminal producer retains its registration until every queued turn settles. */
@@ -984,6 +991,7 @@ export class AgentRunners {
         runner.backlog.push({
           event,
           ...(batch.channelId ? { channelId: batch.channelId } : {}),
+          addressable: this.host.unattended(agent, event, true),
         });
       }
       if (overflow)
@@ -1106,16 +1114,16 @@ export class AgentRunners {
       this.submit(runner, agent, job);
     }
     while (runner.backlog.length) {
-      const { event, channelId, done } = runner
+      const { event, channelId, done, addressable } = runner
         .backlog[0] as Runner["backlog"][0];
-      const heard = this.heard(runner, agent, event, done);
+      const heard = this.heard(runner, agent, event, addressable, done);
       if (
         (heard.held && runner.held.size >= HELD_LIMIT) ||
         !this.takes(runner, heard.triggers)
       )
         return;
       runner.backlog.shift();
-      this.deliver(runner, agent, event, channelId, heard, done);
+      this.deliver(runner, agent, event, channelId, addressable, heard, done);
     }
   }
   /** Gives the agent `event` once, however many times it arrives. */
@@ -1129,7 +1137,13 @@ export class AgentRunners {
     if (this.hasSeen(runner, event.id, channel)) return;
     this.markSeen(runner, event.id, channel);
     if (this.isOwn(agent, event)) return;
-    this.deliver(runner, agent, event, channelId);
+    this.deliver(
+      runner,
+      agent,
+      event,
+      channelId,
+      this.host.unattended(agent, event, true),
+    );
   }
   /** Saves `event` as heard by each of the agent's streams it is in and has
    * not passed yet, so catch-up after a restart does not give it again. */
@@ -1474,7 +1488,14 @@ export class AgentRunners {
       signal.throwIfAborted();
       // Only what the relay signed: a read also returns the owner's own
       // messages not yet sent, which can be older than its page.
-      return events.filter(hasEventProof) as RelayEvent[];
+      const signed = events.filter(hasEventProof) as RelayEvent[];
+      const agent = this.host.agent(runner.key);
+      for (const event of signed)
+        this.readAddressable.set(
+          event,
+          !!agent && this.host.unattended(agent, event, false),
+        );
+      return signed;
     };
     const progress = (key: string, checkpoint: Checkpoint) => {
       this.setCheckpoint(key, checkpoint);
@@ -1606,7 +1627,14 @@ export class AgentRunners {
         (!fanning && this.hasSeen(runner, event.id, channel)) ||
         event.pubkey === agent.pubkey
           ? { triggers: [] }
-          : this.heard(runner, agent, event, fanning?.done, false);
+          : this.heard(
+              runner,
+              agent,
+              event,
+              this.readAddressable.get(event) ??
+                this.host.unattended(agent, event, false),
+              fanning?.done,
+            );
       if (heard.discarded?.length) {
         this.heardLive(agent, event, new Set(heard.discarded));
         runner.fanning = {
@@ -1806,7 +1834,8 @@ export class AgentRunners {
     agent: Agent,
     event: RelayEvent,
     channelId: string | undefined,
-    heard = this.heard(runner, agent, event),
+    addressable: boolean,
+    heard = this.heard(runner, agent, event, addressable),
     done: ReadonlySet<string> = new Set(),
   ) {
     const { triggers } = heard;
@@ -1822,6 +1851,7 @@ export class AgentRunners {
         event,
         ...(channelId ? { channelId } : {}),
         done: completed,
+        addressable,
       });
       if (runner.held.size > HELD_LIMIT) {
         runner.held.delete(runner.held.keys().next().value as string);
@@ -2048,22 +2078,20 @@ export class AgentRunners {
     });
     return pass ? result : undefined;
   }
-  /** What `event`, heard `live` or read by catch-up, wakes now, and whether
-   * other matching watches still wait for its channel's roster to be
-   * confirmed. */
+  /** What `event` wakes now, and whether other matching watches still wait
+   * for its channel's roster to be confirmed. Mentions wake an agent only in
+   * what the owner's app hears for the owner: an event it has only because
+   * watches keep its channel live, or looked the channel up, is not
+   * `addressable`, and only watches hear it. */
   private heard(
     runner: Runner,
     agent: Agent,
     event: RelayEvent,
+    addressable: boolean,
     done: ReadonlySet<string> = new Set(),
-    live = true,
   ): Heard {
     if (this.stopped[runner.key]?.[event.id] !== undefined)
       return { triggers: [] };
-    // Mentions wake an agent only in what the owner's app hears for the
-    // owner. An event it has only because watches keep its channel live, or
-    // looked the channel up, addresses no one: only watches hear it.
-    const addressable = this.host.unattended(agent, event, live);
     // A one-to-one DM is always addressed to the other member, whoever else it
     // names, so no mention is needed. Only new messages: an edit is not a new
     // turn, and a reaction is not conversation. A group DM still needs the

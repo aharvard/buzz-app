@@ -340,8 +340,9 @@ before discovery it fails and is tried again, rather than drop what it finds.
 session as it would have with neither: false for a channel known only from those
 lookups, and, for a live event, one the live routes carry only because it is
 attended. Agents take mentions and one-to-one DM turns only from events for
-which it is true, so watches do not change who a mention wakes; they still hear
-the rest.
+which it is true when it arrived, kept while the event waits, so watches do not
+change who a mention wakes; they still hear the rest. A channel leaves the
+agents-only set once a lookup of the viewer's own succeeds, not when it starts.
 Shared composers and reactions remain unavailable for nonmembers; message helpers
 and workflows do not acquire write eligibility from public metadata. The relay
 remains the final write authority, including low-level outbox intent.

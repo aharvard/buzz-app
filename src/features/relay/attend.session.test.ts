@@ -262,6 +262,72 @@ it.each([
   },
 );
 
+it("counts a channel only agents' reads found as the viewer's only once the viewer's own lookup of it succeeds", async () => {
+  const h = harness();
+  await h.discover();
+  const message = signed(other, {
+    kind: 9,
+    content: "message",
+    created_at: 15,
+    tags: [["h", OPEN]],
+  }) as RelayEvent;
+  /** Reads with `filter`, answers the read with the message, and answers
+   * its metadata lookup with `lookup`. */
+  const read = async (
+    filter: Record<string, unknown>,
+    resolveChannels: boolean,
+    lookup: (entry: (typeof h.wire.pending)[number]) => void,
+  ) => {
+    const reading = h.owner.session.read([filter as never], {
+      fresh: true,
+      ...(resolveChannels ? { resolveChannels } : {}),
+    });
+    const asked = () =>
+      h.wire.pending.findIndex(
+        (entry) =>
+          !entry.signal?.aborted &&
+          entry.filters.some((item) => item.kinds?.includes(9)),
+      );
+    await vi.waitFor(() => expect(asked()).not.toBe(-1));
+    h.wire.pending.splice(asked(), 1)[0]?.respond([message]);
+    const metadata = () =>
+      h.wire.pending.findIndex(
+        (entry) => !entry.signal?.aborted && asks(entry.filters, OPEN),
+      );
+    await vi.waitFor(() => expect(metadata()).not.toBe(-1));
+    const entry = h.wire.pending.splice(metadata(), 1)[0];
+    if (entry) lookup(entry);
+    return reading.then(
+      () => "read",
+      () => "failed",
+    );
+  };
+  // An agent's read of every channel, of more than chat, finds it first.
+  expect(
+    await read(
+      { kinds: [9, 7], since: 11, until: 20, limit: 16 },
+      true,
+      (entry) => entry.respond(channel(OPEN, "public") as RelayEvent[]),
+    ),
+  ).toBe("read");
+  expect(h.owner.session.unattended(OPEN, false)).toBe(false);
+  // The viewer's search finds it too, but its lookup fails: without agents,
+  // the channel would still be unknown.
+  expect(
+    await read({ kinds: [9], search: "message", limit: 16 }, false, (entry) =>
+      entry.fail(new Error("timed out")),
+    ),
+  ).toBe("failed");
+  expect(h.owner.session.unattended(OPEN, false)).toBe(false);
+  // Once a lookup of the viewer's own succeeds, it is the viewer's.
+  expect(
+    await read({ kinds: [9], search: "message", limit: 16 }, false, (entry) =>
+      entry.respond(channel(OPEN, "public") as RelayEvent[]),
+    ),
+  ).toBe("read");
+  expect(h.owner.session.unattended(OPEN, false)).toBe(true);
+});
+
 it("counts an attended channel the viewer has not joined or opened as heard only for agents, live and read", async () => {
   const h = harness();
   const stop = h.owner.session.attend([OPEN]);
