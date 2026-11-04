@@ -460,6 +460,7 @@ export function ChannelMembersButton({
       {conversationName !== undefined ? (
         <ChannelHeaderIdentity
           ref={trigger}
+          data-solo-opener="share"
           session={session}
           channelId={channelId}
           name={conversationName}
@@ -471,6 +472,7 @@ export function ChannelMembersButton({
       ) : (
         <IconButton
           ref={trigger}
+          data-solo-opener="share"
           size="sm"
           aria-label={owner ? `${label}, ${soloOwnerLabel(owner)}` : label}
           title={owner ? soloOwnerLabel(owner) : label}
