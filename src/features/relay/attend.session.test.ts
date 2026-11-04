@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, assert, expect, it, vi } from "vitest";
 import { createRelaySession } from "./session";
 import type { RelayEvent } from "./events";
 import type { LiveCallbacks } from "./live";
@@ -325,6 +325,71 @@ it("counts a channel only agents' reads found as the viewer's only once the view
       entry.respond(channel(OPEN, "public") as RelayEvent[]),
     ),
   ).toBe("read");
+  expect(h.owner.session.unattended(OPEN, false)).toBe(true);
+});
+
+it("counts a channel only agents' reads found as the viewer's once a name search finds it, as without agents", async () => {
+  const h = harness();
+  await h.discover();
+  const pending = (
+    match: (entry: (typeof h.wire.pending)[number]) => boolean,
+  ) =>
+    h.wire.pending.findIndex((entry) => !entry.signal?.aborted && match(entry));
+  const take = async (
+    match: (entry: (typeof h.wire.pending)[number]) => boolean,
+  ) => {
+    await vi.waitFor(() => expect(pending(match)).not.toBe(-1));
+    const entry = h.wire.pending.splice(pending(match), 1)[0];
+    assert(entry);
+    return entry;
+  };
+  const lookup = (entry: (typeof h.wire.pending)[number]) =>
+    asks(entry.filters, OPEN);
+  // An agent's read of every channel, of more than chat, finds it first.
+  const reading = h.owner.session.read(
+    [{ kinds: [9, 7], since: 11, until: 20, limit: 16 }],
+    { fresh: true, resolveChannels: true },
+  );
+  (
+    await take((entry) =>
+      entry.filters.some((filter) => filter.kinds?.includes(9)),
+    )
+  ).respond([
+    signed(other, {
+      kind: 9,
+      content: "message",
+      created_at: 15,
+      tags: [["h", OPEN]],
+    }),
+  ] as RelayEvent[]);
+  (await take(lookup)).respond(channel(OPEN, "public") as RelayEvent[]);
+  expect(await reading).toHaveLength(1);
+  expect(h.owner.session.unattended(OPEN, false)).toBe(false);
+  const search = () => {
+    const found = h.owner.session.channels.searchPublic?.("3333");
+    assert(found);
+    return found.then(
+      ({ channels }) => channels.map(({ id }) => id),
+      () => "failed",
+    );
+  };
+  const directory = (entry: (typeof h.wire.pending)[number]) =>
+    entry.filters.some(
+      (filter) => filter.kinds?.includes(39000) && !filter["#d"],
+    );
+  // The viewer's name search lists it, but its lookup fails: without agents,
+  // the channel would still be unknown.
+  const failing = search();
+  (await take(directory)).respond(channel(OPEN, "public") as RelayEvent[]);
+  (await take(lookup)).fail(new Error("timed out"));
+  expect(await failing).toBe("failed");
+  expect(h.owner.session.unattended(OPEN, false)).toBe(false);
+  // Once the search's lookup succeeds, the channel is the viewer's, though
+  // never opened.
+  // It ranks the directory page already read.
+  const finding = search();
+  (await take(lookup)).respond(channel(OPEN, "public") as RelayEvent[]);
+  expect(await finding).toEqual([OPEN]);
   expect(h.owner.session.unattended(OPEN, false)).toBe(true);
 });
 

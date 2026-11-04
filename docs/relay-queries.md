@@ -342,7 +342,9 @@ lookups, and, for a live event, one the live routes carry only because it is
 attended. Agents take mentions and one-to-one DM turns only from events for
 which it is true when it arrived, kept while the event waits, so watches do not
 change who a mention wakes; they still hear the rest. A channel leaves the
-agents-only set once a lookup of the viewer's own succeeds, not when it starts.
+agents-only set once a lookup of the viewer's own succeeds, not when it starts:
+any exact lookup the store makes without `forAgents`, such as a name search, a
+label lookup or a link, reports through `resolved`.
 Shared composers and reactions remain unavailable for nonmembers; message helpers
 and workflows do not acquire write eligibility from public metadata. The relay
 remains the final write authority, including low-level outbox intent.

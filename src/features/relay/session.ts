@@ -716,7 +716,10 @@ export function createRelaySession(
       if (!viewers)
         for (const id of ids)
           if (!channels.queries.get?.(id)) learnedForAgents.add(id);
-      await channels.queries.resolve?.(ids, settings);
+      await channels.queries.resolve?.(
+        ids,
+        viewers ? settings : { ...settings, forAgents: true },
+      );
       // A read of every channel keeps what visibility keeps below.
       if (!broad)
         events = events.filter((event) => {
@@ -729,9 +732,6 @@ export function createRelaySession(
       settings?.signal?.throwIfAborted();
       if (closed || epoch !== accessEpoch)
         throw new DOMException("Stale relay search", "AbortError");
-      // Known to the viewer's own reads only once their lookup succeeded: one
-      // that failed would have left the channel unknown without agents.
-      if (viewers) for (const id of ids) learnedForAgents.delete(id);
     }
     const visible = accept(
       events,
@@ -1083,6 +1083,12 @@ export function createRelaySession(
           media: (url, size) => transport.media(url, size),
           revokeAccess,
           rosterComplete: dropStrandedSends,
+          // Any lookup but agents' own makes a channel known to the viewer's
+          // traffic: a name search, a label lookup or a link, as without
+          // any `attend`.
+          resolved: (ids, forAgents) => {
+            if (!forAgents) for (const id of ids) learnedForAgents.delete(id);
+          },
           visible: (events) => events.filter(visibility(events)),
           restored: (events) => unread.accept(events),
           demand: (channelId) => demandChannel(channelId),
@@ -1368,7 +1374,11 @@ export function createRelaySession(
       const batch = fresh.slice(start, start + 128);
       void channels.queries
         // In the background lane, so an interactive read never waits behind it.
-        .resolve(batch, { signal: lifetime.signal, priority: "background" })
+        .resolve(batch, {
+          signal: lifetime.signal,
+          priority: "background",
+          forAgents: true,
+        })
         .catch(() => {})
         .finally(() => {
           for (const id of batch) attendReading.delete(id);

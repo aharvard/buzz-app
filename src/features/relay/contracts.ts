@@ -215,8 +215,11 @@ export type ChannelWindow = Readonly<{
   hasNewer?: boolean | undefined;
   loadingNewer?: boolean | undefined;
 }>;
-/** Post-write discovery opts into writer reads; browsing keeps the default. */
-export type ChannelReadOptions = ReadOptions & Pick<ReadFilter, "consistency">;
+/** Post-write discovery opts into writer reads; browsing keeps the default.
+ * `forAgents` marks a lookup only agents' watches make, so the channels it
+ * finds stay unknown to the viewer's own traffic. */
+export type ChannelReadOptions = ReadOptions &
+  Pick<ReadFilter, "consistency"> & { forAgents?: boolean };
 export type PublicChannelSearch = Readonly<{
   channels: readonly ChannelSummary[];
   /** The metadata read stopped at its bound, so some channels were not checked. */
