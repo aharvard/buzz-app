@@ -178,6 +178,10 @@ test("image review hides the ready update notice until the viewer closes", async
       .poll(() => viewer.evaluate((el) => el.contains(document.activeElement)))
       .toBe(true);
   }
+  // A media control's focused tooltip owns Escape. Return to the frame so
+  // this key tests closing the viewer itself, rather than its nested hint.
+  await viewer.focus();
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(viewer).toHaveCount(0);
   await expect(opener).toBeFocused();
