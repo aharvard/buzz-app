@@ -14,16 +14,21 @@ import {
   mentionAdmission,
 } from "../../features/messages/mention-admission";
 
-/** The viewer's agents offered outside a stream or forum when the viewer can add members. */
+/** The viewer's agents offered outside a stream or forum when the viewer can
+ * add members, and outside a DM when `dms` (a DM adds no one, so they are
+ * only named there, never notified). */
 function availableMentionAgents<T extends { pubkey: string }>(
   channel: ChannelSummary | undefined,
   agents: readonly T[],
   canInvite: boolean | undefined,
+  dms = false,
 ) {
   if (
     !channel?.members ||
-    (channel.channelType !== "stream" && channel.channelType !== "forum") ||
-    !canInvite
+    !(channel.channelType === "dm"
+      ? dms
+      : (channel.channelType === "stream" || channel.channelType === "forum") &&
+        canInvite)
   )
     return [];
   const members = new Set(channel.members);
@@ -151,21 +156,27 @@ export function mentionCandidates(
  * The directory people that change `mentionCandidates` or its labels, given
  * its rows without a directory. A member a profile names gets that name, its
  * aliases and, once naming knows the key, its label from the profile; the
- * directory only adds its agent flag. Passing just these gives the same rows.
+ * directory only adds its agent flag and a declared owner the profile lacks.
+ * Passing just these gives the same rows.
  */
 export function directoryChanges<T extends DirectoryPerson>(
   local: ReadonlyMap<string, MentionCandidate>,
   directory: readonly T[],
-  profiles: ReadonlyMap<string, { name?: string | undefined }>,
+  profiles: ReadonlyMap<
+    string,
+    { name?: string | undefined; ownerPubkey?: string | undefined }
+  >,
   named: (pubkey: string) => boolean,
 ) {
   return directory.filter((person) => {
     const row = local.get(person.pubkey);
+    const profile = profiles.get(person.pubkey);
     return !(
       row?.member &&
-      profiles.get(person.pubkey)?.name &&
+      profile?.name &&
       named(person.pubkey) &&
-      (!person.isAgent || row.agent)
+      (!person.isAgent || row.agent) &&
+      (!person.ownerPubkey || person.ownerPubkey === profile.ownerPubkey)
     );
   });
 }
@@ -200,6 +211,7 @@ function buildCandidates(
           channel,
           agents,
           session.outbox?.supports(9000),
+          true,
         )))
     choices.set(person.pubkey, { pubkey: person.pubkey, name: person.name });
   if (!roster && !inviteAgents && allowsOutsideMentions(channel))
@@ -244,9 +256,11 @@ function buildCandidates(
   const listed = new Map<string, string>();
   const directoryAgents = new Set<string>();
   const verified = new Map<string, DirectoryPerson>();
+  const owners = new Map<string, string>();
   for (const person of directory) {
     if (!listed.has(person.pubkey)) listed.set(person.pubkey, person.name);
     if (person.isAgent) directoryAgents.add(person.pubkey);
+    if (person.ownerPubkey) owners.set(person.pubkey, person.ownerPubkey);
     if (person.fullName || person.profileNames)
       verified.set(person.pubkey, person);
   }
@@ -262,6 +276,15 @@ function buildCandidates(
     ]);
     if (agent.managed) managed.add(agent.pubkey);
   }
+  // The viewer's own agents: their saved and hosted agents here and in their
+  // other communities, and any agent whose profile or directory row names the
+  // viewer as owner. Ownership is a display hint (README, Scope and authority).
+  const mine = (pubkey: string) =>
+    !!session.viewer &&
+    (agentNames.has(pubkey) ||
+      hosts.has(pubkey) ||
+      (profiles.get(pubkey)?.ownerPubkey ?? owners.get(pubkey)) ===
+        session.viewer);
   return [...choices.values()]
     .filter((p) => admits(p.pubkey))
     .map((recipient) => {
@@ -288,9 +311,7 @@ function buildCandidates(
           hosts.has(recipient.pubkey) ||
           known.has(recipient.pubkey) ||
           directoryAgents.has(recipient.pubkey),
-        owned:
-          !!session.viewer &&
-          profiles.get(recipient.pubkey)?.ownerPubkey === session.viewer,
+        owned: mine(recipient.pubkey),
         managed: managed.has(recipient.pubkey),
         aliases: [
           ...new Set(

@@ -26,6 +26,7 @@ import {
   mentionCandidates,
 } from "./mention-candidates";
 import { useListedChannel } from "../../features/relay/listed-channel";
+import { useProfileGeneration } from "../../features/relay/react";
 import { useNamesRevision } from "../../features/identity-names/react";
 import {
   useVerifiedNames,
@@ -422,13 +423,39 @@ export function useMentionChoices(
       ),
     [attested],
   );
-  const ownerKeys = [...new Set(owners.values())].sort().join(":");
+  // Naming qualifies a directory agent by its declared owner's name (`Wes’s
+  // Sol`), so read those owners too: directory pages are not cached profiles.
+  const ownerKeys = [
+    ...new Set([
+      ...owners.values(),
+      ...people.flatMap((person) =>
+        person.isAgent &&
+        person.ownerPubkey &&
+        person.ownerPubkey !== session.viewer
+          ? [person.ownerPubkey]
+          : [],
+      ),
+    ]),
+  ]
+    .sort()
+    .join(":");
+  // An access purge, an eviction or a cancelled read drops owner names, so
+  // ask again then too. Owners still loaded cost no read.
+  const profileGeneration = useProfileGeneration(session.profiles);
+  const readEvictions = () => session.profiles.evictions?.() ?? 0;
+  const evictions = useSyncExternalStore(
+    session.profiles.subscribe,
+    readEvictions,
+    readEvictions,
+  );
   useEffect(() => {
+    void profileGeneration;
+    void evictions;
     if (ownerKeys)
       void session.profiles
         .ensure(ownerKeys.split(":"), "background")
         .catch(() => {});
-  }, [session, ownerKeys]);
+  }, [session, ownerKeys, profileGeneration, evictions]);
   const managedBy = useMemo(
     () =>
       new Map(
@@ -476,10 +503,17 @@ export function useMentionChoices(
     }
   }
   if (rows && rows.length < MENTION_ROWS) {
-    // Append-only: late invited agents and directory pages never move shown rows.
-    // Member-list changes keep their installed set until the query changes.
+    // Append-only: late invited or own agents and directory pages never move
+    // shown rows. Member-list changes keep their installed set until the query
+    // changes.
     const shown = new Set(rows.map((row) => row.recipient.pubkey));
-    const added = (invite ? rank(matches.filter((c) => c.agent)) : outside())
+    const added = rank(
+      matches.filter((c) =>
+        invite
+          ? c.agent
+          : !local.has(c.recipient.pubkey) || (c.agent && !c.member),
+      ),
+    )
       .filter((c) => !shown.has(c.recipient.pubkey))
       .slice(0, MENTION_ROWS - rows.length);
     if (added.length) {

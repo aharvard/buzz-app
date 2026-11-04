@@ -1991,6 +1991,195 @@ it("qualifies outside directory namesakes that have no cached profile", async ()
   names.dispose();
 });
 
+it("in a DM, names directory namesakes by owner and puts the viewer's own agent first", async () => {
+  const t = setup();
+  const viewer = "1".repeat(64),
+    wes = "2".repeat(64),
+    sam = "3".repeat(64),
+    other = "a".repeat(64),
+    wesSol = "e".repeat(64),
+    samSol = "f".repeat(64),
+    mine = "c".repeat(64);
+  // Kyle's DM: every Sol comes from the directory and only Wes is cached. His
+  // own agent has the plain name this rule supports, not his `kylez` prefix.
+  const people = vi.fn(async () => ({
+    people: [
+      { pubkey: wesSol, name: "Sol", isAgent: true as const, ownerPubkey: wes },
+      { pubkey: samSol, name: "Sol", isAgent: true as const, ownerPubkey: sam },
+      {
+        pubkey: mine,
+        name: "Sol 6",
+        isAgent: true as const,
+        ownerPubkey: viewer,
+      },
+    ],
+    hasMore: false,
+  }));
+  let profiles = new Map<string, { name: string }>([
+    [viewer, { name: "Kyle" }],
+    [other, { name: "Logan" }],
+    [wes, { name: "Wes" }],
+  ]);
+  const listeners = new Set<() => void>();
+  const notify = () => {
+    for (const listener of listeners) listener();
+  };
+  // The first owner read is cancelled, as a shrinking profile reservation
+  // does; an eviction count then asks again without a new query.
+  let evictions = 0;
+  const ensure = vi.fn(async (keys: readonly string[]) => {
+    if (keys.includes(sam) && !profiles.has(sam) && evictions > 0) {
+      profiles = new Map([...profiles, [sam, { name: "Sam" }]]);
+      notify();
+    }
+  });
+  const list = {
+    status: "ready" as const,
+    channels: [
+      {
+        id: "parent",
+        name: "DM",
+        channelType: "dm" as const,
+        members: [viewer, other],
+      },
+    ],
+  };
+  const session = {
+    ...t.session,
+    viewer,
+    directMessages: { ...t.session.directMessages, people },
+    channels: { ...t.session.channels, list: () => list },
+    profiles: {
+      snapshot: () => profiles,
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      ensure,
+      evictions: () => evictions,
+    },
+  };
+  const provider = createAgentDirectory();
+  const names = bindNames(
+    { viewer, profiles: session.profiles, agentLibrary: t.library.queries },
+    { snapshot: () => [provider], subscribe: () => () => {} },
+  );
+  const publish = vi.fn();
+  render(
+    <MentionCompletion
+      session={{ ...session, names }}
+      scope="test"
+      channelId="parent"
+      observation={{ revision: 1, text: "@sol", start: 4, end: 4 }}
+      query={{ start: 0, end: 4, query: "sol" }}
+      publish={publish}
+    />,
+  );
+  const items = () =>
+    (publish.mock.lastCall?.[0] as CompletionResult | undefined)?.items.map(
+      (item) => [item.id, item.label],
+    ) ?? [];
+  await waitFor(() =>
+    expect(items()).toEqual([
+      [mine, "Sol 6"],
+      [samSol, "Sol"],
+      [wesSol, "Wes’s Sol"],
+    ]),
+  );
+  expect(ensure).toHaveBeenCalledWith(
+    expect.arrayContaining([sam, wes]),
+    "background",
+  );
+  act(() => {
+    evictions += 1;
+    notify();
+  });
+  await waitFor(() =>
+    expect(items()).toEqual([
+      [mine, "Sol 6"],
+      [samSol, "Sam’s Sol"],
+      [wesSol, "Wes’s Sol"],
+    ]),
+  );
+  names.dispose();
+});
+
+it("appends the viewer's agents that load after the menu opens in a DM", async () => {
+  const t = setup();
+  const viewer = "1".repeat(64),
+    other = "a".repeat(64),
+    theirs = "e".repeat(64),
+    mine = "c".repeat(64);
+  let release: (() => void) | undefined;
+  const library = createAgentLibrary(
+    () =>
+      new Promise((resolve) => {
+        release = () =>
+          resolve({
+            definitions: [],
+            identities: [{ pubkey: mine, name: "Sol 6" }],
+          });
+      }),
+  );
+  const people = vi.fn(async () => ({
+    people: [{ pubkey: theirs, name: "Sol", isAgent: true as const }],
+    hasMore: false,
+  }));
+  const list = {
+    status: "ready" as const,
+    channels: [
+      {
+        id: "parent",
+        name: "DM",
+        channelType: "dm" as const,
+        members: [viewer, other],
+      },
+    ],
+  };
+  const profiles = new Map([
+    [viewer, { name: "Kyle" }],
+    [other, { name: "Logan" }],
+  ]);
+  const session = {
+    ...t.session,
+    viewer,
+    directMessages: { ...t.session.directMessages, people },
+    channels: { ...t.session.channels, list: () => list },
+    profiles: { ...t.session.profiles, snapshot: () => profiles },
+    agentLibrary: library.queries,
+    agentChoices: createAgentChoices({
+      scope: "test",
+      library: library.queries,
+      signal: new AbortController().signal,
+    }),
+  };
+  const publish = vi.fn();
+  render(
+    <MentionCompletion
+      session={session}
+      scope="test"
+      channelId="parent"
+      observation={{ revision: 1, text: "@sol", start: 4, end: 4 }}
+      query={{ start: 0, end: 4, query: "sol" }}
+      publish={publish}
+    />,
+  );
+  const ids = () =>
+    (publish.mock.lastCall?.[0] as CompletionResult | undefined)?.items.map(
+      (item) => item.id,
+    ) ?? [];
+  await waitFor(() => expect(ids()).toEqual([theirs]));
+  const loading = library.queries.refresh();
+  await waitFor(() => expect(release).toBeDefined());
+  await act(async () => {
+    release?.();
+    await loading;
+  });
+  // Shown rows never move; the late agent joins after them.
+  await waitFor(() => expect(ids()).toEqual([theirs, mine]));
+  library.dispose();
+});
+
 it("never expands Solo chat candidates from the community directory", async () => {
   vi.useFakeTimers();
   const t = setup();
