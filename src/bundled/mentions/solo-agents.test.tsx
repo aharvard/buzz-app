@@ -1991,7 +1991,7 @@ it("qualifies outside directory namesakes that have no cached profile", async ()
   names.dispose();
 });
 
-it("in a DM, names directory namesakes by owner and puts the viewer's own agent first", async () => {
+it("in a DM, names directory namesakes by owner and puts the viewer's verified agent first", async () => {
   const t = setup();
   const viewer = "1".repeat(64),
     wes = "2".repeat(64),
@@ -1999,13 +1999,23 @@ it("in a DM, names directory namesakes by owner and puts the viewer's own agent 
     other = "a".repeat(64),
     wesSol = "e".repeat(64),
     samSol = "f".repeat(64),
-    mine = "c".repeat(64);
+    mine = "c".repeat(64),
+    impostor = "d".repeat(64);
   // Kyle's DM: every Sol comes from the directory and only Wes is cached. His
   // own agent has the plain name this rule supports, not his `kylez` prefix.
+  // Both "Sol 6" and "Sol 7" claim him as owner; only his own is verified, so
+  // "Sol 7" ranks by its match alone: below the exact "Sol", above the
+  // qualified "Wes’s Sol" whose label matches only at a later word.
   const people = vi.fn(async () => ({
     people: [
       { pubkey: wesSol, name: "Sol", isAgent: true as const, ownerPubkey: wes },
       { pubkey: samSol, name: "Sol", isAgent: true as const, ownerPubkey: sam },
+      {
+        pubkey: impostor,
+        name: "Sol 7",
+        isAgent: true as const,
+        ownerPubkey: viewer,
+      },
       {
         pubkey: mine,
         name: "Sol 6",
@@ -2057,6 +2067,7 @@ it("in a DM, names directory namesakes by owner and puts the viewer's own agent 
       },
       ensure,
       evictions: () => evictions,
+      owner: (key: string) => (key === mine ? viewer : undefined),
     },
   };
   const provider = createAgentDirectory();
@@ -2083,6 +2094,7 @@ it("in a DM, names directory namesakes by owner and puts the viewer's own agent 
     expect(items()).toEqual([
       [mine, "Sol 6"],
       [samSol, "Sol"],
+      [impostor, "Sol 7"],
       [wesSol, "Wes’s Sol"],
     ]),
   );
@@ -2098,6 +2110,7 @@ it("in a DM, names directory namesakes by owner and puts the viewer's own agent 
     expect(items()).toEqual([
       [mine, "Sol 6"],
       [samSol, "Sam’s Sol"],
+      [impostor, "Sol 7"],
       [wesSol, "Wes’s Sol"],
     ]),
   );

@@ -59,9 +59,11 @@ permission, and Solo chat invitation rules stay the authority. Labels are
 presentation only. Clients MUST send and store exact keys, not labels.
 
 This contract does not define profile validation, archive state, presence, or
-agent ownership proof. Ownership here is a display hint, not authorization: an
-agent is the viewer's when it is one of the viewer's own agents, or when its
-profile or directory row names the viewer as its owner.
+agent ownership proof. Ownership here is a ranking hint, not authorization: an
+agent is the viewer's when it is one of the viewer's own agents, or when the
+client has verified the owner claim in its signed profile and that owner is the
+viewer. An owner claim the client has not verified can still qualify the
+agent's label (`Wes’s Sol`), but it never makes the agent the viewer's.
 
 ## 1. Choice set
 

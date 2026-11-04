@@ -179,15 +179,16 @@ it("shows the verified name each row is not, and matches every verified name", (
   }
 });
 
-it("marks the viewer's saved, hosted and owner-named agents as theirs", () => {
+it("marks only the viewer's saved and hosted agents as theirs", () => {
   const owned = new Map(
     rows([
       { pubkey: key(8), name: "Mine", isAgent: true, ownerPubkey: key(1) },
       { pubkey: key(9), name: "Theirs", isAgent: true, ownerPubkey: key(4) },
     ]).map((row) => [row.recipient.pubkey, row.owned]),
   );
-  // 3 and 6 are saved or hosted, 7 is in another community, 8's directory
-  // row names the viewer. 9 belongs to someone else; 4 is a person.
+  // 3 and 6 are saved or hosted, and 7 is in another community. 8's directory
+  // row names the viewer, but that claim is unverified. 9 belongs to someone
+  // else; 4 is a person.
   expect(owned).toEqual(
     new Map([
       [key(1), false],
@@ -196,7 +197,7 @@ it("marks the viewer's saved, hosted and owner-named agents as theirs", () => {
       [key(4), false],
       [key(6), true],
       [key(7), true],
-      [key(8), true],
+      [key(8), false],
       [key(9), false],
     ]),
   );
@@ -222,41 +223,4 @@ it("offers the viewer's agents in a DM, where they are named but never added", (
   // Another community's agent (7) could only join, which a DM cannot do.
   expect(offered).toContainEqual([key(6), false, true]);
   expect(offered.map(([pubkey]) => pubkey)).not.toContain(key(7));
-});
-
-it("keeps a directory row whose declared owner the member's profile lacks", () => {
-  // Member 3 is a named agent; drop it from inventory so only the directory
-  // can say it is the viewer's.
-  const session = fresh();
-  Object.assign(session, {
-    agentChoices: { snapshot: () => ({ identities: [] }) },
-  });
-  const local = new Map(
-    rows(undefined, session).map((row) => [row.recipient.pubkey, row]),
-  );
-  const directory = [
-    {
-      pubkey: key(3),
-      name: "Bot",
-      isAgent: true as const,
-      ownerPubkey: key(1),
-    },
-  ];
-  const changes = directoryChanges(
-    local,
-    directory,
-    profiles,
-    (pubkey) => !!profiles.get(pubkey)?.name,
-  );
-  expect(changes).toEqual(directory);
-  const owned = rows(changes, session).find(
-    (row) => row.recipient.pubkey === key(3),
-  )?.owned;
-  expect(owned).toBe(true);
-  // The same owner as the profile changes nothing.
-  const same = new Map<string, { name?: string; ownerPubkey?: string }>([
-    ...profiles,
-    [key(3), { name: "Bot", ownerPubkey: key(1) }],
-  ]);
-  expect(directoryChanges(local, directory, same, () => true)).toEqual([]);
 });
