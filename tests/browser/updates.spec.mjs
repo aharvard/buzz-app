@@ -1,6 +1,11 @@
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { test, expect } from "./fixture.mjs";
-import { openSettings, selectSettingsSection } from "./navigation.mjs";
+import {
+  openPage,
+  openSettings,
+  selectSettingsSection,
+} from "./navigation.mjs";
 
 test.use({ historyCounts: { alpha: 0, beta: 0 } });
 
@@ -115,6 +120,83 @@ async function openUpdates(page, app) {
 
 const commands = (page) =>
   page.evaluate(() => window.updaterCalls.map((call) => call.command));
+
+// Browser-only: production app portal wiring, CSS visibility, native focus and
+// pointer restoration across MediaReviewFrame. The installer remains fake IPC.
+test("image review hides the ready update notice until the viewer closes", async ({
+  page,
+  app,
+}, info) => {
+  await nativeUpdater(page, { checkResults: [true] });
+  await page.route("**/api/relay/primary/media?**", (route) =>
+    route.fulfill({
+      path: fileURLToPath(
+        new URL("../../public/shell-gradient.png", import.meta.url),
+      ),
+      contentType: "image/png",
+    }),
+  );
+  app.histories.get("primary/alpha").push(
+    app.sign({
+      kind: 9,
+      content: "Update notice image",
+      created_at: 1700000900,
+      tags: [
+        ["h", "alpha"],
+        ["imeta", "url https://primary.example/media/photo.png", "m image/png"],
+      ],
+    }),
+  );
+  await page.goto(app.origin);
+  await openPage(page, "Messages");
+  await expect
+    .poll(() => page.evaluate(() => typeof window.finishDownload))
+    .toBe("function");
+  await page.evaluate(() => window.finishDownload());
+  const host = page.locator("#buzz-toast-root");
+  const notice = host.getByText("Ready to update!");
+  await expect(notice).toBeVisible();
+  const opener = page.getByRole("link", {
+    name: "Open image attachment",
+    exact: true,
+  });
+  await opener.click();
+  const viewer = page.getByRole("dialog", {
+    name: "Image viewer",
+    exact: true,
+  });
+  await expect(viewer).toBeVisible();
+  await expect(viewer.locator("[data-review-stage]")).toBeVisible();
+  await expect(notice).toBeAttached();
+  await expect(notice).toBeHidden();
+  await expect(host).toHaveAttribute("inert", "");
+  await expect(viewer).not.toHaveAttribute("data-review-opening");
+  await page.screenshot({ path: info.outputPath("viewer-notice-hidden.png") });
+  for (const key of ["Tab", "Shift+Tab", "F6"]) {
+    await page.keyboard.press(key);
+    await expect
+      .poll(() => viewer.evaluate((el) => el.contains(document.activeElement)))
+      .toBe(true);
+  }
+  await page.keyboard.press("Escape");
+  await expect(viewer).toHaveCount(0);
+  await expect(opener).toBeFocused();
+  await expect(notice).toBeVisible();
+  await page.screenshot({
+    path: info.outputPath("viewer-closed-notice-restored.png"),
+  });
+  await host
+    .getByRole("button", { name: "Update now", exact: true })
+    .click({ trial: true });
+  await host
+    .getByRole("button", { name: "Dismiss update notification" })
+    .click();
+  await expect(notice).toHaveCount(0);
+  expect(await commands(page)).toEqual([
+    "plugin:updater|check",
+    "plugin:updater|download",
+  ]);
+});
 
 test("update checks recover from failure, download, and restart from the toast", async ({
   page,
