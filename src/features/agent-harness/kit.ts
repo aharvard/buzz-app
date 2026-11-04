@@ -222,8 +222,8 @@ export function harnessKit(sources: Sources): HarnessKit {
       // for the owner.
       const wake = trigger.type !== "mention" ? trigger : undefined;
       if (trigger.type === "mention") {
-        // Only the owner or an attested sibling. Unlike the bundled harnesses,
-        // which kept relay workflow mentions for compatibility, no workflow check.
+        // Only direct owner or attested-sibling requests; workflow output does
+        // not authorize a request in either plugin or bundled harnesses.
         if (!(await fromOwner(trigger.event, agent.owner))) return undefined;
         signal.throwIfAborted();
       }

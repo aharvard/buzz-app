@@ -10,7 +10,7 @@ import { isFinalMessage } from "../../buzz-mcp/session-tools";
 import type { WorkOutcome } from "../../features/agents/local-activity";
 import type { AgentProtection } from "../../features/agent-protection/service";
 import { nativeProtectionBridge } from "../../features/agent-protection/native-bridge";
-import { fromOwner, workflowOf } from "../../features/agents/owner-attestation";
+import { fromOwner } from "../../features/agents/owner-attestation";
 import {
   type ConversationWake,
   wakeAnchor,
@@ -1364,11 +1364,7 @@ export class CodexRuntime {
     const reads = this.reads(agent.key);
     if (
       trigger.type === "mention" &&
-      !(await fromOwner(
-        trigger.event,
-        agent.owner,
-        workflowOf(reads, agent.pubkey),
-      ))
+      !(await fromOwner(trigger.event, agent.owner))
     ) {
       delivery.ignored?.();
       return;

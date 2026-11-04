@@ -21,7 +21,7 @@ import {
   unsupportedSynced,
   unverifiedSynced,
 } from "../../features/agents/agent-config";
-import { fromOwner, workflowOf } from "../../features/agents/owner-attestation";
+import { fromOwner } from "../../features/agents/owner-attestation";
 import type { AgentReads } from "../../features/agents/reads";
 import { localStore, type AgentStore } from "../../features/agents/store";
 import type {
@@ -825,11 +825,7 @@ export class ClaudeRuntime {
     // Claude runs commands as you; mentions need owner or delegated authority.
     if (
       trigger.type === "mention" &&
-      !(await fromOwner(
-        trigger.event,
-        agent.owner,
-        workflowOf(this.reads(agent.key), agent.pubkey),
-      ))
+      !(await fromOwner(trigger.event, agent.owner))
     ) {
       ignored?.();
       return;

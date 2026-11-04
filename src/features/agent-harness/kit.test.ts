@@ -179,8 +179,8 @@ describe("harnessKit.conversation", () => {
     expect(
       await kit.conversation(delivery({ type: "mention", event }), "thread"),
     ).toBeUndefined();
-    // A relay workflow mention the bundled harnesses would run: signed by
-    // the community's workflow key, owned by the owner, aimed at this agent.
+    // Relay workflow output stays unauthorized even when the owner created
+    // the workflow and explicitly targeted this agent.
     const workflow = eventDto(
       signed(workflowKey, {
         kind: 9,
@@ -194,19 +194,14 @@ describe("harnessKit.conversation", () => {
         ],
       }),
     );
-    expect(
-      await fromOwner(workflow, alice, {
-        agent: self,
-        authority: workflowKey.pubkey,
-      }),
-    ).toBe(true);
+    expect(await fromOwner(workflow, alice)).toBe(false);
     expect(
       await kit.conversation(
         delivery({ type: "mention", event: workflow }),
         "thread",
       ),
     ).toBeUndefined();
-    // A workflow marker does not revoke the owner's own mention.
+    // A workflow marker also prevents fallback to the owner's signer authority.
     const marked = message("3", "@Ampy go", {
       tags: [
         ["h", channel],
@@ -219,7 +214,7 @@ describe("harnessKit.conversation", () => {
         delivery({ type: "mention", event: marked }),
         "thread",
       ),
-    ).toBeDefined();
+    ).toBeUndefined();
     expect(
       await kit.conversation(
         delivery({

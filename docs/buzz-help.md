@@ -468,6 +468,9 @@ available rather than silently discarding it.
 - On desktop, Buzz starts every agent with `BUZZ_VERSION` set to the app's
   version, and agents usually pass it on to the shell commands they run. A
   script or shell config can check for it to tell it is running under Buzz.
+- Workflow messages do not automatically start or steer local Claude, Codex,
+  Goose, or Pi agents. To have one act on a workflow result, send it a direct
+  request explaining what to do with that result.
 - **Agents** is where people create and manage agents. For supported types,
   open an agent there and use **Identity → Instructions**. Opening its avatar or
   name in a conversation shows its profile, where **Settings → Instructions**
