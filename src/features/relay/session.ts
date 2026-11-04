@@ -73,7 +73,11 @@ import type {
 } from "./incoming";
 import { objectBody } from "./body";
 import { agentAudience } from "./audience";
-import type { ChannelList, ChannelSummary } from "./contracts";
+import type {
+  ChannelList,
+  ChannelReadOptions,
+  ChannelSummary,
+} from "./contracts";
 import { createChannelActivity } from "./channel-activity";
 import { readSidebarPreferences } from "./sidebar-preferences";
 import { sidebarSortNeedsActivity } from "./sidebar-sort";
@@ -1170,6 +1174,14 @@ export function createRelaySession(
   const projectedChannels = new WeakMap<ChannelSummary, ChannelSummary>();
   const channelQueries = Object.freeze({
     ...channels.queries,
+    // Only the viewer's own surfaces call it from outside the session (a
+    // scoped search, a requested channel, a repository page), so what they
+    // look up becomes the viewer's, as without any `attend`.
+    ...(channels.queries.resolve && {
+      resolve: (ids: readonly string[], options?: ChannelReadOptions) =>
+        channels.queries.resolve?.(ids, { ...options, viewerLookup: true }) ??
+        Promise.resolve(),
+    }),
     list() {
       const snapshot = channels.queries.list();
       const activityRevision = channelActivity.revision();

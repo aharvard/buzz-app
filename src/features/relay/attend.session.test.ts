@@ -461,6 +461,57 @@ it("counts a channel only agents' reads found as the viewer's once a link to it 
   release?.();
 });
 
+it("counts a channel only agents' reads found as the viewer's once a scoped search's lookup of it succeeds", async () => {
+  const h = harness();
+  await h.discover();
+  const reading = h.owner.session.read(
+    [{ kinds: [9, 7], since: 11, until: 20, limit: 16 }],
+    { fresh: true, resolveChannels: true },
+  );
+  const lookup = () =>
+    h.wire.pending.findIndex(
+      (entry) => !entry.signal?.aborted && asks(entry.filters, OPEN),
+    );
+  const asked = () =>
+    h.wire.pending.findIndex((entry) =>
+      entry.filters.some((filter) => filter.kinds?.includes(9)),
+    );
+  await vi.waitFor(() => expect(asked()).not.toBe(-1));
+  h.wire.pending.splice(asked(), 1)[0]?.respond([
+    signed(other, {
+      kind: 9,
+      content: "message",
+      created_at: 15,
+      tags: [["h", OPEN]],
+    }),
+  ] as RelayEvent[]);
+  await vi.waitFor(() => expect(lookup()).not.toBe(-1));
+  h.wire.pending
+    .splice(lookup(), 1)[0]
+    ?.respond(channel(OPEN, "public") as RelayEvent[]);
+  expect(await reading).toHaveLength(1);
+  expect(h.owner.session.unattended(OPEN, false)).toBe(false);
+  // `in:<id>` search resolves the channel itself before its read. A failed
+  // lookup leaves it as it was.
+  const search = () =>
+    (h.owner.session.channels.resolve?.([OPEN]) ?? Promise.resolve()).then(
+      () => "read",
+      () => "failed",
+    );
+  const failing = search();
+  await vi.waitFor(() => expect(lookup()).not.toBe(-1));
+  h.wire.pending.splice(lookup(), 1)[0]?.fail(new Error("timed out"));
+  expect(await failing).toBe("failed");
+  expect(h.owner.session.unattended(OPEN, false)).toBe(false);
+  const finding = search();
+  await vi.waitFor(() => expect(lookup()).not.toBe(-1));
+  h.wire.pending
+    .splice(lookup(), 1)[0]
+    ?.respond(channel(OPEN, "public") as RelayEvent[]);
+  expect(await finding).toBe("read");
+  expect(h.owner.session.unattended(OPEN, false)).toBe(true);
+});
+
 it("keeps an attended channel heard only for agents when a recheck after an access-revoked CLOSED finds it public again", async () => {
   const h = harness();
   const stop = h.owner.session.attend([OPEN]);

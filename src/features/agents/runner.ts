@@ -606,6 +606,10 @@ export class AgentRunners {
    * nothing from the time it was off; across a restart, its saved
    * checkpoint, moved while it was off, does the same. */
   private quiet = new Set<string>();
+  /** When each stream started in this copy: turned on, added, or shown. A
+   * route its watch's channel then gets replays a few minutes from before
+   * that, which must not wake it. */
+  private started = new Map<string, number>();
   /** Whether startup is over for Attention: plugins have finished starting,
    * or Attention has been shown, since this copy started. */
   private settled = false;
@@ -988,9 +992,11 @@ export class AgentRunners {
         if (this.isOwn(agent, event)) continue;
         // A replay waits for room rather than take the drops a burst of
         // live traffic would.
+        const done = this.before(runner, agent, event);
         runner.backlog.push({
           event,
           ...(batch.channelId ? { channelId: batch.channelId } : {}),
+          ...(done.size ? { done } : {}),
           addressable: this.host.unattended(agent, event, true),
         });
       }
@@ -1000,6 +1006,19 @@ export class AgentRunners {
         );
       if (batch.replay) this.admit(runner);
     }
+  }
+  /** The agent's watches whose streams started after a replayed `event`. */
+  private before(runner: Runner, agent: Agent, event: RelayEvent) {
+    return new Set(
+      this.watches(runner, agent).flatMap(({ slug, watch }) => {
+        const started = this.started.get(
+          streamOf(runner.key, { slug, watch, event }),
+        );
+        return started !== undefined && event.created_at < started
+          ? [slug]
+          : [];
+      }),
+    );
   }
   private hasSeen(runner: Runner, id: string, channel: string | undefined) {
     return (
@@ -1242,6 +1261,7 @@ export class AgentRunners {
           // Saved too, so one turned on after a restart starts from about
           // when this copy last saw it off, or from when Attention is shown.
           this.quiet.add(stream.key);
+          this.started.delete(stream.key);
           if (
             (checkpoint?.through ?? 0) < now ||
             (!shown && !checkpoint?.hidden)
@@ -1251,10 +1271,12 @@ export class AgentRunners {
           this.quiet.delete(stream.key) ||
           !checkpoint ||
           checkpoint.hidden
-        )
+        ) {
           // A stream new to catch-up, as every one is on an upgrade, starts
           // now: an earlier `since` does not replay older events.
           move(stream.key, { through: now });
+          this.started.set(stream.key, now);
+        }
         // Until its channel's metadata is known, a read returns none of its
         // events: it waits, with its checkpoint where it was.
         else if (

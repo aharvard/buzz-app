@@ -8629,6 +8629,55 @@ it.each([
   },
 );
 
+it("wakes a watch turned back on for nothing its channel's new route replays from the time it was off", async () => {
+  vi.useFakeTimers({ now: 1_000_000_000 });
+  try {
+    const { service, run, emit, attended } = await setup();
+    await service.create({ type: "example/echo", name: "Echo" });
+    const watch = {
+      type: "event",
+      interest_id: "default",
+      enabled: true,
+      since: 1,
+      channels: [plaza],
+      kinds: [],
+    } as const;
+    const enable = (enabled: boolean) =>
+      service.save(bot, {
+        attentionEnabled: true,
+        attention: { "watch/plaza": { ...watch, enabled } },
+      });
+    const kept = () => [...attended].flat().includes(plaza);
+    await enable(true);
+    await vi.waitFor(() => expect(kept()).toBe(true));
+    await vi.advanceTimersByTimeAsync(10_000);
+    // Off: its channel is no longer kept live, so nothing there is heard.
+    await enable(false);
+    await vi.waitFor(() => expect(kept()).toBe(false));
+    await vi.advanceTimersByTimeAsync(30_000);
+    const off = Math.floor(Date.now() / 1000);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await enable(true);
+    await vi.waitFor(() => expect(kept()).toBe(true));
+    await vi.advanceTimersByTimeAsync(1_000);
+    const on = Math.floor(Date.now() / 1000);
+    // The new route sends its last minutes again: one sent while the watch
+    // was off, and one since.
+    emit({
+      replay: true,
+      channelId: plaza,
+      events: [
+        event("off", { created_at: off, tags: [["h", plaza]] }),
+        event("fresh", { created_at: on + 1, tags: [["h", plaza]] }),
+      ],
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(woke(run)).toEqual(["fresh"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("answers a replayed mention that waited for room as it arrived, though its channel was closed since", async () => {
   vi.useFakeTimers({ now: 1_000_000_000 });
   try {
