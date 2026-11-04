@@ -215,7 +215,8 @@ export function createChannelStore(
         rosterChanged?(strong?: boolean): void;
         /** The relay advertises NIP-CL; label lookups are refused without it. */
         channelIdentity?: true | undefined;
-        /** A `viewerLookup` read these channels' metadata. */
+        /** A `viewerLookup` read these channels' metadata, or a mounted
+         * link named a channel already known. */
         resolved?(ids: readonly string[]): void;
       })
     | null,
@@ -3154,7 +3155,10 @@ export function createChannelStore(
     if (disposed || !transport || !discovery || options.cachedOnly) return;
     // Discovery's admission, not a found name, decides: a left channel's
     // messages need a fresh lookup.
-    if (list.status !== "ready" || discovery.get(id)) return;
+    if (list.status !== "ready") return;
+    // A known channel needs no lookup, but a link names it in the viewer's
+    // own traffic, as the lookup would have had it been unknown.
+    if (discovery.get(id)) return transport.resolved?.([id]);
     const state = currentReferences();
     if (
       state.queue.has(id) ||

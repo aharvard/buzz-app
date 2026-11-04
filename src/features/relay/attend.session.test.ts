@@ -418,6 +418,49 @@ it("counts an attended channel the viewer has not joined or opened as heard only
   stop();
 });
 
+it("counts a channel only agents' reads found as the viewer's once a link to it mounts, with no lookup", async () => {
+  const h = harness();
+  await h.discover();
+  const reading = h.owner.session.read(
+    [{ kinds: [9, 7], since: 11, until: 20, limit: 16 }],
+    { fresh: true, resolveChannels: true },
+  );
+  const asked = () =>
+    h.wire.pending.findIndex((entry) =>
+      entry.filters.some((filter) => filter.kinds?.includes(9)),
+    );
+  await vi.waitFor(() => expect(asked()).not.toBe(-1));
+  h.wire.pending.splice(asked(), 1)[0]?.respond([
+    signed(other, {
+      kind: 9,
+      content: "message",
+      created_at: 15,
+      tags: [["h", OPEN]],
+    }),
+  ] as RelayEvent[]);
+  await vi.waitFor(() =>
+    expect(h.wire.pending.some((entry) => asks(entry.filters, OPEN))).toBe(
+      true,
+    ),
+  );
+  h.wire.pending
+    .find((entry) => asks(entry.filters, OPEN))
+    ?.respond(channel(OPEN, "public") as RelayEvent[]);
+  expect(await reading).toHaveLength(1);
+  expect(h.owner.session.unattended(OPEN, false)).toBe(false);
+  // Without agents, the link's lookup would have made it known; here it is
+  // already, so nothing is read.
+  const release = h.owner.session.channels.refer?.(OPEN);
+  await flush();
+  expect(
+    h.wire.pending.some(
+      (entry) => !entry.signal?.aborted && asks(entry.filters, OPEN),
+    ),
+  ).toBe(false);
+  expect(h.owner.session.unattended(OPEN, false)).toBe(true);
+  release?.();
+});
+
 it("keeps an attended channel heard only for agents when a recheck after an access-revoked CLOSED finds it public again", async () => {
   const h = harness();
   const stop = h.owner.session.attend([OPEN]);

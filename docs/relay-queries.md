@@ -344,7 +344,9 @@ which it is true when it arrived, kept while the event waits, so watches do not
 change who a mention wakes; they still hear the rest. A channel leaves the
 agents-only set once a lookup of the viewer's own succeeds, not when it starts:
 an exact lookup marked `viewerLookup` (a name search, a label lookup, a mounted
-link or a search read) reports through `resolved`. Rechecks, such as preview
+link or a search read) reports through `resolved`, and so does a mounted link
+to a channel already known, which needs no lookup: links hold their demand
+even when readable. Rechecks, such as preview
 revalidation after an access-revoked CLOSED or a member-added confirmation,
 leave it as it was.
 Shared composers and reactions remain unavailable for nonmembers; message helpers
