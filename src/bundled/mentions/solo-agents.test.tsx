@@ -2003,9 +2003,10 @@ it("in a DM, names directory namesakes by owner and puts the viewer's verified a
     impostor = "d".repeat(64);
   // Kyle's DM: every Sol comes from the directory and only Wes is cached. His
   // own agent has the plain name this rule supports, not his `kylez` prefix.
-  // Both "Sol 6" and "Sol 7" claim him as owner; only his own is verified, so
-  // "Sol 7" ranks by its match alone: below the exact "Sol", above the
-  // qualified "Wes’s Sol" whose label matches only at a later word.
+  // Both "Sol 6" and "Sol 7" claim him as owner; only his own verifies once
+  // its profile loads, so "Sol 7" ranks by its match alone: below the exact
+  // "Sol", above the qualified "Wes’s Sol" whose label matches only at a
+  // later word.
   const people = vi.fn(async () => ({
     people: [
       { pubkey: wesSol, name: "Sol", isAgent: true as const, ownerPubkey: wes },
@@ -2042,6 +2043,12 @@ it("in a DM, names directory namesakes by owner and puts the viewer's verified a
       profiles = new Map([...profiles, [sam, { name: "Sam" }]]);
       notify();
     }
+    // The menu reads each agent profile that claims the viewer; only his own
+    // then verifies.
+    if (keys.includes(mine) && !profiles.has(mine)) {
+      profiles = new Map([...profiles, [mine, { name: "Sol 6" }]]);
+      notify();
+    }
   });
   const list = {
     status: "ready" as const,
@@ -2067,7 +2074,8 @@ it("in a DM, names directory namesakes by owner and puts the viewer's verified a
       },
       ensure,
       evictions: () => evictions,
-      owner: (key: string) => (key === mine ? viewer : undefined),
+      owner: (key: string) =>
+        key === mine && profiles.has(mine) ? viewer : undefined,
     },
   };
   const provider = createAgentDirectory();
@@ -2076,16 +2084,26 @@ it("in a DM, names directory namesakes by owner and puts the viewer's verified a
     { snapshot: () => [provider], subscribe: () => () => {} },
   );
   const publish = vi.fn();
-  render(
+  const menu = (text: string, revision: number) => (
     <MentionCompletion
       session={{ ...session, names }}
       scope="test"
       channelId="parent"
-      observation={{ revision: 1, text: "@sol", start: 4, end: 4 }}
-      query={{ start: 0, end: 4, query: "sol" }}
+      observation={{ revision, text, start: text.length, end: text.length }}
+      query={{ start: 0, end: text.length, query: text.slice(1) }}
       publish={publish}
-    />,
+    />
   );
+  // The profile cache starts cold: the first query finds the agent and reads
+  // its profile, and the next query ranks it as verified.
+  const { rerender } = render(menu("@so", 1));
+  await waitFor(() =>
+    expect(ensure).toHaveBeenCalledWith(
+      expect.arrayContaining([mine]),
+      "background",
+    ),
+  );
+  rerender(menu("@sol", 2));
   const items = () =>
     (publish.mock.lastCall?.[0] as CompletionResult | undefined)?.items.map(
       (item) => [item.id, item.label],
