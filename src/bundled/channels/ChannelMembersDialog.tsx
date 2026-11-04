@@ -428,11 +428,14 @@ export function ChannelMembersButton({
   owner,
   label = "Access",
   conversationName,
+  trigger: hostTrigger,
 }: {
   session: RelaySession;
   channelId: string;
   label?: string;
   conversationName?: string;
+  /** The button's ref, for a host that returns focus to it. */
+  trigger?: RefObject<HTMLButtonElement | null> | undefined;
   /** Someone else's Solo chat names its owner on the Access control. */
   owner?: { name: string; picture?: string | undefined } | undefined;
   agents?: Agents | undefined;
@@ -446,7 +449,8 @@ export function ChannelMembersButton({
   const [localOpen, setLocalOpen] = useState(false);
   const open = presentation ? presentation.open : localOpen;
   const setOpen = presentation ? presentation.onOpenChange : setLocalOpen;
-  const trigger = useRef<HTMLButtonElement>(null);
+  const ownTrigger = useRef<HTMLButtonElement>(null);
+  const trigger = hostTrigger ?? ownTrigger;
   const list = useSyncExternalStore(
     session.channels.subscribeList,
     session.channels.list,
@@ -460,7 +464,6 @@ export function ChannelMembersButton({
       {conversationName !== undefined ? (
         <ChannelHeaderIdentity
           ref={trigger}
-          data-solo-opener="share"
           session={session}
           channelId={channelId}
           name={conversationName}
@@ -472,7 +475,6 @@ export function ChannelMembersButton({
       ) : (
         <IconButton
           ref={trigger}
-          data-solo-opener="share"
           size="sm"
           aria-label={owner ? `${label}, ${soloOwnerLabel(owner)}` : label}
           title={owner ? soloOwnerLabel(owner) : label}
