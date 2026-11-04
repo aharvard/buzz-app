@@ -215,9 +215,8 @@ export function createChannelStore(
         rosterChanged?(strong?: boolean): void;
         /** The relay advertises NIP-CL; label lookups are refused without it. */
         channelIdentity?: true | undefined;
-        /** An exact lookup of these channels read their metadata. `forAgents`
-         * as the lookup asked. */
-        resolved?(ids: readonly string[], forAgents: boolean): void;
+        /** A `viewerLookup` read these channels' metadata. */
+        resolved?(ids: readonly string[]): void;
       })
     | null,
   directory: ProfileDirectory,
@@ -2154,7 +2153,7 @@ export function createChannelStore(
       } else if (!discovery.named(id))
         throw new Error("Channel metadata capacity unavailable");
     }
-    transport.resolved?.(ids, settings?.forAgents === true);
+    if (settings?.viewerLookup) transport.resolved?.(ids);
     if (settings?.consistency === "strong")
       await readCreations(
         ids.flatMap((id) => {
@@ -2631,10 +2630,11 @@ export function createChannelStore(
                 : 0,
             );
       if (unresolved.length) {
-        await resolve(
-          unresolved,
-          readSignal ? { ...settings, signal: readSignal } : settings,
-        );
+        await resolve(unresolved, {
+          ...settings,
+          ...(readSignal ? { signal: readSignal } : {}),
+          viewerLookup: true,
+        });
         const stale = new Set(
           unresolved.filter((id) => {
             const current = discovery.metadataVersion(id);
@@ -2811,7 +2811,8 @@ export function createChannelStore(
         }),
       ),
     ];
-    if (ids.length) await resolve(ids, settings, true);
+    if (ids.length)
+      await resolve(ids, { ...settings, viewerLookup: true }, true);
     if (disposed || generation !== epoch)
       throw new DOMException("Stale channel lookup", "AbortError");
     return ids
@@ -3175,7 +3176,7 @@ export function createChannelStore(
       for (let start = 0; start < ids.length; start += 128) {
         const batch = ids.slice(start, start + 128);
         for (const id of batch) state.pending.add(id);
-        resolve(batch, { priority: "background" }).then(
+        resolve(batch, { priority: "background", viewerLookup: true }).then(
           () => {
             if (generation !== epoch) return;
             for (const id of batch) {

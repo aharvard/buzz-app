@@ -66,6 +66,8 @@ function harness() {
     reconnect,
     connect,
     receive: (events: readonly RelayEvent[]) => live.receive(events as never),
+    state: (snapshot: Parameters<LiveCallbacks["state"]>[0]) =>
+      live.state(snapshot),
   };
 }
 /** The relay's signed metadata and roster of a channel only `other` is in. */
@@ -413,6 +415,51 @@ it("counts an attended channel the viewer has not joined or opened as heard only
   expect(h.owner.session.unattended(OPEN, false)).toBe(false);
   // A channel no agent attends is heard as without attendance.
   expect(h.owner.session.unattended(CLOSED, true)).toBe(true);
+  stop();
+});
+
+it("keeps an attended channel heard only for agents when a recheck after an access-revoked CLOSED finds it public again", async () => {
+  const h = harness();
+  const stop = h.owner.session.attend([OPEN]);
+  await h.discover();
+  const lookup = () =>
+    h.wire.pending.findIndex(
+      (entry) => !entry.signal?.aborted && asks(entry.filters, OPEN),
+    );
+  await vi.waitFor(() => expect(lookup()).not.toBe(-1));
+  h.wire.pending
+    .splice(lookup(), 1)[0]
+    ?.respond(channel(OPEN, "public") as RelayEvent[]);
+  await vi.waitFor(() =>
+    expect(h.update.mock.lastCall?.[0] ?? []).toContain(OPEN),
+  );
+  expect(h.owner.session.unattended(OPEN, false)).toBe(false);
+  h.state({
+    status: "connected",
+    routes: [
+      {
+        id: "attended",
+        channelId: OPEN,
+        status: "error",
+        replay: "unknown",
+        error: "restricted: channel access revoked",
+      },
+    ],
+  });
+  // The recheck, and attendance's own read of the suspended channel, find it
+  // public again; the viewer has still not looked it up.
+  await vi.waitFor(() => expect(lookup()).not.toBe(-1));
+  await flush();
+  expect(
+    h.wire.pending.filter((entry) => asks(entry.filters, OPEN)),
+  ).toHaveLength(2);
+  while (lookup() !== -1)
+    h.wire.pending
+      .splice(lookup(), 1)[0]
+      ?.respond(channel(OPEN, "public") as RelayEvent[]);
+  await flush();
+  expect(h.owner.session.channels.get?.(OPEN)).toBeDefined();
+  expect(h.owner.session.unattended(OPEN, false)).toBe(false);
   stop();
 });
 
