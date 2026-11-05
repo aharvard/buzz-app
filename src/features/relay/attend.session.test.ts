@@ -501,6 +501,71 @@ it("counts an attended channel the viewer has not joined or opened as heard only
   stop();
 });
 
+it("counts a joined channel that agents also attend as heard for the viewer, live and read", async () => {
+  const h = harness();
+  const joined = () => h.update.mock.lastCall?.[1] ?? [];
+  h.connect();
+  await vi.waitFor(() => expect(h.wire.pending).toHaveLength(1));
+  h.wire.next().respond([
+    signed(relay, {
+      kind: 39000,
+      content: "",
+      created_at: 10,
+      tags: [["d", OPEN], ["name", "open"], ["public"]],
+    }),
+    signed(relay, {
+      kind: 39002,
+      content: "",
+      created_at: 10,
+      tags: [
+        ["d", OPEN],
+        ["p", viewer.pubkey],
+      ],
+    }),
+  ] as RelayEvent[]);
+  await vi.waitFor(() => expect(joined()).toContain(OPEN));
+  const stop = h.owner.session.attend([OPEN]);
+  await flush();
+  // Known already, so attendance reads nothing; the live routes carry it for
+  // the viewer as without attendance, so a live mention is heard as on main.
+  expect(
+    h.wire.pending.some(
+      (entry) => !entry.signal?.aborted && asks(entry.filters, OPEN),
+    ),
+  ).toBe(false);
+  expect(h.owner.session.unattended(OPEN, true)).toBe(true);
+  expect(h.owner.session.unattended(OPEN, false)).toBe(true);
+  stop();
+});
+
+it("counts an attended channel its read did not find as the viewer's once a link's lookup of it succeeds", async () => {
+  const h = harness();
+  const stop = h.owner.session.attend([OPEN]);
+  await h.discover();
+  const lookup = () =>
+    h.wire.pending.findIndex(
+      (entry) => !entry.signal?.aborted && asks(entry.filters, OPEN),
+    );
+  await vi.waitFor(() => expect(lookup()).not.toBe(-1));
+  // Attendance's read finds nothing the viewer may read.
+  h.wire.pending.splice(lookup(), 1)[0]?.respond([]);
+  await flush();
+  expect(h.owner.session.channels.get?.(OPEN)?.pending ?? true).toBe(true);
+  expect(h.owner.session.unattended(OPEN, false)).toBe(false);
+  // A link to it mounts, and the viewer's own lookup finds it public.
+  const release = h.owner.session.channels.refer?.(OPEN);
+  await vi.waitFor(() => expect(lookup()).not.toBe(-1));
+  h.wire.pending
+    .splice(lookup(), 1)[0]
+    ?.respond(channel(OPEN, "public") as RelayEvent[]);
+  await vi.waitFor(() =>
+    expect(h.owner.session.channels.get?.(OPEN)).toBeDefined(),
+  );
+  expect(h.owner.session.unattended(OPEN, false)).toBe(true);
+  release?.();
+  stop();
+});
+
 it("counts a channel only agents' reads found as the viewer's once a link to it mounts, with no lookup", async () => {
   const h = harness();
   await h.discover();
