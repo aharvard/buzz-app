@@ -318,6 +318,9 @@ export function SoloInventory({
             onOpenThread={(thread) =>
               openMessage(thread.channelId, thread.rootId)
             }
+            onOpenMention={(mention) =>
+              openMessage(mention.channelId, mention.messageId)
+            }
             onOpenWorkingAgent={(id, _agent, messageId) => {
               if (messageId) openMessage(id, messageId);
               else void open(id);
@@ -369,6 +372,7 @@ function SoloConversationRow({
   onSelect,
   onRename,
   onOpenThread,
+  onOpenMention,
   onOpenWorkingAgent,
   onOpenAgentActivity,
 }: {
@@ -385,7 +389,10 @@ function SoloConversationRow({
   onRename: (() => boolean) | undefined;
 } & Pick<
   ComponentProps<typeof ChannelActivityPopover>,
-  "onOpenThread" | "onOpenWorkingAgent" | "onOpenAgentActivity"
+  | "onOpenThread"
+  | "onOpenMention"
+  | "onOpenWorkingAgent"
+  | "onOpenAgentActivity"
 >) {
   const activation = useSoloRowActivation(
     navigation,
@@ -409,6 +416,7 @@ function SoloConversationRow({
       agents={agents}
       agentProfiles={agentProfiles}
       onOpenThread={onOpenThread}
+      onOpenMention={onOpenMention}
       {...(onOpenWorkingAgent ? { onOpenWorkingAgent } : {})}
       {...(onOpenAgentActivity ? { onOpenAgentActivity } : {})}
       trigger={
