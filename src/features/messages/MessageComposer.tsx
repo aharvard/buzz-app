@@ -3015,6 +3015,7 @@ function Composer({
             selectPrimary: taskDraft?.selectPrimary
               ? selectTaskPrimary
               : undefined,
+            eligible: taskDraft ? admits() : undefined,
           }}
         >
           {tools}
