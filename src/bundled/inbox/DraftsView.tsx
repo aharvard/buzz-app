@@ -1,3 +1,4 @@
+import { viewerMember } from "../../features/relay/membership";
 import { useProfileGeneration } from "../../features/relay/react";
 import type { ConversationHostServices } from "../../features/conversation/ConversationHost";
 import {
@@ -186,7 +187,7 @@ export function DraftsView({
         !item.cached &&
         !item.archived &&
         !item.readOnly &&
-        item.members?.includes(scope.viewer),
+        viewerMember(item, scope.viewer),
     );
   const visible = entries.slice(0, limit);
   const profileKey = [

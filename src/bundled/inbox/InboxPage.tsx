@@ -1,3 +1,4 @@
+import { viewerMember } from "../../features/relay/membership";
 import type { ConversationHostServices } from "../../features/conversation/ConversationHost";
 import {
   type ReactNode,
@@ -801,7 +802,7 @@ function InboxList({
         session.unread.generation() === generation &&
         !!channel &&
         !channel.cached &&
-        !!channel.members?.includes(scope.viewer) &&
+        viewerMember(channel, scope.viewer) &&
         session.unread
           .inbox()
           .items.some(
@@ -894,8 +895,8 @@ function InboxList({
         (!current.readOnly || current.viewerRole === "guest") &&
         !current.archived &&
         current.channelType === channel.channelType &&
-        !!current.members?.includes(scope.viewer) &&
-        [...current.members].sort().join(":") === membership &&
+        viewerMember(current, scope.viewer) &&
+        current.members?.slice().sort().join(":") === membership &&
         session.unread.generation() === generation &&
         session.unread
           .inbox()

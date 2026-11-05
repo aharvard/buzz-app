@@ -1,3 +1,4 @@
+import { viewerMember } from "../relay/membership";
 import { useContext, useEffect, useState, useSyncExternalStore } from "react";
 import { Avatar } from "../../shared/design-system/ui/Avatar";
 import { avatarMedia } from "../../shared/avatar-source";
@@ -115,7 +116,7 @@ export function AgentConnectionSetup({
     channel &&
     (channel.channelType === "stream" || channel.channelType === "forum") &&
     session.viewer &&
-    channel.members?.includes(session.viewer) &&
+    viewerMember(channel, session.viewer) &&
     !channel.archived &&
     !channel.readOnly &&
     !channel.cached &&

@@ -1,3 +1,4 @@
+import { viewerMember } from "./membership";
 import { retryRead } from "./read-retry";
 import { channelRowKind, rowProfileIds, messagePreview } from "./membership";
 import type { Outbox } from "./outbox";
@@ -389,6 +390,8 @@ export function createChannelStore(
         old.metadataPending === pending &&
         old.visibility === channel.visibility &&
         old.joinRole === channel.joinRole &&
+        old.viewerMembership?.pubkey === channel.viewerMembership?.pubkey &&
+        old.viewerMembership?.joined === channel.viewerMembership?.joined &&
         old.viewerRole === channel.viewerRole &&
         old.preview === preview &&
         old.hidden === channel.hidden &&
@@ -3039,7 +3042,7 @@ export function createChannelStore(
   function describeReference(id: string): ChannelReference {
     const channel = discovery?.get(id);
     if (channel) {
-      const joined = !!discovery && channel.members?.includes(discovery.viewer);
+      const joined = !!discovery && viewerMember(channel, discovery.viewer);
       return {
         state: "found",
         name: channel.name,

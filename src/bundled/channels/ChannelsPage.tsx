@@ -1,3 +1,4 @@
+import { viewerMember } from "../../features/relay/membership";
 import { useChannelHistoryFocus } from "./useChannelHistoryFocus";
 import type { Conversation } from "../../features/conversation/service";
 import { StartLinkedChat, canStartLinkedChat } from "./StartLinkedChat";
@@ -1655,7 +1656,7 @@ function ChannelWorkspace({
               !item.cached &&
               !item.readOnly &&
               !item.archived &&
-              item.members?.includes(queries.viewer ?? ""),
+              viewerMember(item, queries.viewer),
           );
       if (linkedChat && linkedChat.id !== current?.id) {
         const id = `conversation:${linkedChat.id}`;
