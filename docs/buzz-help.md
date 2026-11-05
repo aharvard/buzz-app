@@ -291,7 +291,9 @@ that agent in Buzz; they do not notify the external app through this connection.
   first word is the emoji when it is a `:shortcode:` the app knows or a single
   emoji; otherwise the whole text is the status. `/invite @user`,
   `/remove @user`, `/join #channel`, `/leave` and `/who` manage channel members; `/invite` and `/remove` appear only when your role allows
-  them. A message that starts with an @mention or an unknown `/command` is sent
+  them. `/rename <name>` and `/archive` (owners and admins only; `/archive` asks the same
+  confirmation as the channel menu), `/mute` and `/dm @user… [message]` (also `/msg`) work on
+  the channel or conversation. A message that starts with an @mention or an unknown `/command` is sent
   as written, so agents keep their own commands. A command cannot be sent with
   attachments.
 - **Canvas** holds shared notes and context for a channel or chat. Messages and
