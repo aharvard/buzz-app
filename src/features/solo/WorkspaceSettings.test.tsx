@@ -1014,6 +1014,10 @@ it("a kept draft from a failed save closes without asking and reopens intact", a
   h.mounted.unmount();
   render(h.view());
   expect(await instructions()).toHaveValue("My draft");
+  // The restored draft is what reopening shows, so it isn't an edit either.
+  await user.keyboard("{Escape}");
+  expect(h.close).toHaveBeenCalledTimes(2);
+  expect(screen.queryByRole("alertdialog")).toBeNull();
 });
 
 it.each([
