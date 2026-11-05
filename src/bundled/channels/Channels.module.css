@@ -514,13 +514,16 @@ body:has([data-create-section-drop][data-drop-target]) .channelDragOverlay {
 .untitledSection {
   padding-block-start: var(--space-1);
 }
-.untitledSection .sectionActions {
-  top: 0;
+/* Without a heading row, actions take their own row in the flow rather than
+   overlaying the content and reserving its trailing edge. Child selectors keep
+   these rules off the headers of sections nested inside. */
+.untitledSection > .sectionActions {
+  position: static;
+  justify-content: flex-end;
   opacity: 1;
-  pointer-events: auto;
 }
-.untitledSectionContent {
-  padding-inline-end: calc(var(--space-8) + var(--space-1));
+.untitledSection > .sectionActions:empty {
+  display: none;
 }
 /* Revealed actions cover trailing text when the reservation is capped. */
 .sectionHeader:has(> details) > .sectionActions {

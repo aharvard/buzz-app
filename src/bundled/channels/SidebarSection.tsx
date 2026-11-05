@@ -175,12 +175,6 @@ export function SidebarSection({
     return (
       <div className={`${styles.channelSection} ${styles.untitledSection}`}>
         {headerNotice}
-        <div
-          id={id}
-          className={`${styles.sectionContent} ${styles.untitledSectionContent}`}
-        >
-          <div>{children}</div>
-        </div>
         <div className={styles.sectionActions}>
           {headerActions}
           {newMessage && (
@@ -193,6 +187,9 @@ export function SidebarSection({
               icon={<PlusIcon strokeWidth={2.5} size={15} />}
             />
           )}
+        </div>
+        <div id={id} className={styles.sectionContent}>
+          <div>{children}</div>
         </div>
       </div>
     );

@@ -196,3 +196,60 @@ test("a presence badge preserves the sidebar avatar center and header insets", a
     expect(inset).toBe(fittingInset);
   }
 });
+
+test("Solo rows span the Team row width and workspace actions stay in their header", async ({
+  page,
+  app,
+}) => {
+  await page.goto(app.origin);
+  await newChat(page);
+  const soloRow = page.locator(`[data-solo-menu-id="${solo}"]`);
+  const teamRow = page
+    .locator("[data-channel-sidebar-row]")
+    .filter({ has: page.locator('[data-channel-id="beta"]') });
+  // Both rows paint their fill on ::before; its end inset is a calc expression.
+  const paintedEnd = (row) =>
+    row.evaluate(
+      (element) =>
+        element.getBoundingClientRect().right -
+        parseFloat(getComputedStyle(element, "::before").right),
+    );
+  await page.getByRole("tab", { name: "Team" }).click();
+  await expect(teamRow).toBeVisible();
+  const teamEnd = await paintedEnd(teamRow);
+  await page.getByRole("tab", { name: "Solo" }).click();
+  await expect(soloRow).toBeVisible();
+  await expect.poll(() => paintedEnd(soloRow)).toBe(teamEnd);
+
+  await soloRow.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Move to", exact: true }).hover();
+  await page.getByRole("menuitem", { name: "New workspace" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(page.locator('[role="menu"]')).toHaveCount(0);
+  const field = dialog.getByRole("textbox", { name: "Workspace name" });
+  await expect(field).toBeFocused();
+  await field.fill("Work");
+  await dialog.getByRole("button", { name: "Create and move" }).click();
+  await expect(dialog).not.toBeVisible();
+  const nav = page.getByRole("navigation", { name: "Solo conversations" });
+  const work = nav.getByRole("button", { name: "Work", exact: true });
+  const create = nav.getByRole("button", { name: "New chat in Work" });
+  // A workspace's actions reveal on hover, centered on its own heading.
+  const shown = () =>
+    create.evaluate(
+      (element) => getComputedStyle(element.parentElement).opacity,
+    );
+  await page.mouse.move(0, 0);
+  await expect.poll(shown).toBe("0");
+  await work.hover();
+  await expect.poll(shown).toBe("1");
+  const center = (locator) =>
+    locator.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.y + rect.height / 2;
+    });
+  await expect
+    .poll(async () => Math.abs((await center(create)) - (await center(work))))
+    .toBeLessThan(1);
+  await expect.poll(() => paintedEnd(soloRow)).toBe(teamEnd);
+});
