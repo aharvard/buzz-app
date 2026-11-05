@@ -107,7 +107,12 @@ import { ReportMessageDialog } from "./ReportMessageDialog";
 import { messageCopyLink, messageCopyText } from "./message-copy";
 import { avatarMedia } from "../../shared/avatar-source";
 
-export type MessageLinkOrigin = Readonly<{ rootId: string }>;
+export type MessageLinkOrigin = Readonly<{
+  rootId?: string;
+  /** Where the destination returns focus when the link's own control leaves
+   * with its surface, as a media-review comment's does. */
+  returnFocus?: HTMLElement | undefined;
+}>;
 export type MessageRowProps = {
   row: ChannelMessage;
   recordedActivity?: ActivityRowPresentation | undefined;

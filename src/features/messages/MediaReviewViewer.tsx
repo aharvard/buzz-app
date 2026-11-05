@@ -484,6 +484,7 @@ function ReviewShell({
                   extensions={extensions}
                   canOpenLink={canOpenLink}
                   onOpenLink={onOpenLink}
+                  restoreFocus={restoreFocus}
                   close={() => {
                     followed.current = true;
                     close();
@@ -615,6 +616,7 @@ function ReviewComments({
   extensions,
   canOpenLink,
   onOpenLink,
+  restoreFocus,
   close,
   seek,
   selectAttachment,
@@ -629,6 +631,7 @@ function ReviewComments({
   extensions?: ConversationExtensions | undefined;
   canOpenLink: ((target: string) => boolean) | undefined;
   onOpenLink(url: string, origin?: MessageLinkOrigin): boolean;
+  restoreFocus: RefObject<HTMLElement | null> | undefined;
   close(): void;
   seek?: (seconds: number) => void;
   selectAttachment(attachment: Attachment, initialTime: number): void;
@@ -660,6 +663,9 @@ function ReviewComments({
   const openThreadTab = useContext(LinkThreadTabContext);
   // Following a comment link leaves the review, as a link leaves a dialog: the
   // host shows the destination, then the review closes. A refusal keeps it.
+  // The comment leaves with the review, so the destination returns focus to
+  // the review's opener.
+  const opener = () => restoreFocus?.current ?? undefined;
   const leave = (opened: boolean) => {
     if (opened) close();
     return opened;
@@ -669,7 +675,7 @@ function ReviewComments({
       value={
         openThreadTab &&
         ((channel, message, root) =>
-          leave(openThreadTab(channel, message, root)))
+          leave(openThreadTab(channel, message, root, opener())))
       }
     >
       <section
@@ -700,7 +706,9 @@ function ReviewComments({
                 agentPubkeys={agentPubkeys}
                 media={session.media}
                 canOpenLink={canOpenLink}
-                onOpenLink={(url, origin) => leave(onOpenLink(url, origin))}
+                onOpenLink={(url, origin) =>
+                  leave(onOpenLink(url, { ...origin, returnFocus: opener() }))
+                }
                 day={
                   index === 0 ||
                   new Date(
