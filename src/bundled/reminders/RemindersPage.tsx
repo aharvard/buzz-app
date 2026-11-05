@@ -9,6 +9,7 @@ import {
   useSyncExternalStore,
   type ReactElement,
   type Ref,
+  type RefObject,
 } from "react";
 import {
   AnimatePresence,
@@ -207,6 +208,7 @@ export function RemindersPage({
               now={now}
               open={scope ? open : undefined}
               run={run}
+              page={page}
             />
           )}
         </div>
@@ -233,6 +235,7 @@ function ReminderSections({
   now,
   open,
   run,
+  page,
 }: {
   session: RelaySession;
   reminders: Reminders;
@@ -241,6 +244,7 @@ function ReminderSections({
   now: number;
   open: ((reminder: Reminder, conversation?: boolean) => void) | undefined;
   run(action: Promise<unknown>): void;
+  page: RefObject<HTMLDivElement | null>;
 }) {
   const reducedMotion = useReducedMotion();
   const [pointerMotion, setPointerMotion] = useState(false);
@@ -483,14 +487,16 @@ function ReminderSections({
           close={() => setSnoozing(undefined)}
           // The reminder's trigger in whichever row shows it now, not one
           // leaving its old group. If the reminder left the page meanwhile,
-          // the list, whose first tabbable control Base UI focuses.
+          // the list, whose first tabbable control Base UI focuses. With no
+          // reminders left the list has none, so the page takes focus, as it
+          // does after Retry.
           finalFocus={() =>
             Array.from(
               sections.current?.querySelectorAll<HTMLElement>(
                 "li:not([inert]) [data-snooze]",
               ) ?? [],
             ).find((trigger) => trigger.dataset.snooze === snoozing.id) ??
-            sections.current
+            (active.length || done ? sections.current : page.current)
           }
         />
       )}

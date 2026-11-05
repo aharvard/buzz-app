@@ -339,6 +339,48 @@ it("keeps focus in the list when a custom snooze's reminder leaves the page", as
   );
 });
 
+it("focuses the page when a custom snooze's reminder was the last one left", async () => {
+  const user = userEvent.setup();
+  let state = {
+    status: "ready" as const,
+    reminders: [reminder("due soon", "pending", 1, now + 600)],
+  };
+  const listeners = new Set<() => void>();
+  page({
+    snapshot: () => state,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    snooze: vi.fn(),
+  } as unknown as Reminders);
+  const trigger = screen.getByRole("button", { name: "Snooze: Ada" });
+  await user.click(trigger);
+  await user.click(await screen.findByRole("menuitem", { name: "Custom…" }));
+  const dialog = await screen.findByRole("dialog", { name: "Snooze reminder" });
+  // Another device cancels the only reminder while its dialog is open.
+  act(() => {
+    state = {
+      ...state,
+      reminders: [reminder("due soon", "cancelled", 1, now + 600)],
+    };
+    for (const listener of listeners) listener();
+  });
+  await waitFor(() => expect(trigger).not.toBeInTheDocument());
+  await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  // The empty list has nothing to focus, so the page takes focus, not <body>.
+  expect(
+    screen.getByRole("heading", { name: "No reminders yet" }),
+  ).toBeInTheDocument();
+  await waitFor(() =>
+    expect(
+      screen.getByRole("region", { name: "Reminders" }).firstElementChild,
+    ).toHaveFocus(),
+  );
+  expect(document.activeElement).not.toBe(document.body);
+});
+
 it("won't let a custom snooze restore a reminder another device cancelled", async () => {
   const user = userEvent.setup();
   let state = {
