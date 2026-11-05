@@ -8678,6 +8678,117 @@ it("wakes a watch turned back on for nothing its channel's new route replays fro
   }
 });
 
+it("wakes a watch turned on while a replay waits for room for nothing from before it started", async () => {
+  vi.useFakeTimers({ now: 1_000_000_000 });
+  try {
+    const { service, run, emit, attended } = await setup();
+    await service.create({ type: "example/echo", name: "Echo" });
+    const watch = {
+      type: "event",
+      interest_id: "default",
+      since: 1,
+      channels: [plaza],
+      kinds: [],
+    } as const;
+    const save = (late: boolean) =>
+      service.save(bot, {
+        attentionEnabled: true,
+        attention: {
+          "watch/early": { ...watch, enabled: true },
+          "watch/late": { ...watch, enabled: late },
+        },
+      });
+    const by = (slug: string) =>
+      run.mock.calls.flatMap(([input]) => {
+        const { trigger } = input as {
+          trigger: { slug?: string; event: RelayEvent };
+        };
+        return trigger.slug === slug
+          ? [trigger.event.id.replace(/0+$/, "")]
+          : [];
+      });
+    await save(false);
+    await vi.waitFor(() => expect([...attended].flat()).toContain(plaza));
+    await vi.advanceTimersByTimeAsync(1_000);
+    const sent = Math.floor(Date.now() / 1000);
+    const ids = Array.from({ length: 80 }, (_, index) => `w${index}x`);
+    emit({
+      replay: true,
+      channelId: plaza,
+      events: ids.map((id) =>
+        event(id, { created_at: sent, tags: [["h", plaza]] }),
+      ),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    // More than the agent takes at once: the rest wait for room.
+    expect(by("watch/early").length).toBeLessThan(80);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await save(true);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const on = Math.floor(Date.now() / 1000);
+    emit({
+      replay: true,
+      channelId: plaza,
+      events: [event("after", { created_at: on + 1, tags: [["h", plaza]] })],
+    });
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(by("watch/early")).toHaveLength(81);
+    expect(by("watch/late")).toEqual(["after"]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("wakes a watch turned on while a replay waits for its roster for nothing from before it started", async () => {
+  vi.useFakeTimers({ now: 1_000_000_000 });
+  try {
+    const { service, run, emit, confirm } = await setup();
+    await service.create({ type: "example/echo", name: "Echo" });
+    const watch = {
+      type: "event",
+      interest_id: "default",
+      since: 1,
+      channels: "all",
+      kinds: [],
+    } as const;
+    const save = (late: boolean) =>
+      service.save(bot, {
+        attentionEnabled: true,
+        attention: {
+          "watch/early": { ...watch, enabled: true },
+          "watch/late": { ...watch, enabled: late },
+        },
+      });
+    const by = (slug: string) =>
+      run.mock.calls.flatMap(([input]) => {
+        const { trigger } = input as {
+          trigger: { slug?: string; event: RelayEvent };
+        };
+        return trigger.slug === slug
+          ? [trigger.event.id.replace(/0+$/, "")]
+          : [];
+      });
+    await save(false);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const sent = Math.floor(Date.now() / 1000);
+    emit({
+      replay: true,
+      events: [event("held", { created_at: sent, tags: [["h", "saved"]] })],
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(run).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await save(true);
+    await vi.advanceTimersByTimeAsync(1_000);
+    confirm("saved", [viewer, bot]);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(by("watch/early")).toEqual(["held"]);
+    expect(by("watch/late")).toEqual([]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("answers a replayed mention that waited for room as it arrived, though its channel was closed since", async () => {
   vi.useFakeTimers({ now: 1_000_000_000 });
   try {

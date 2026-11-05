@@ -261,6 +261,8 @@ type PendingEvent = {
    * (`unattended`), kept from arrival so a channel closed while it waits does
    * not change what it wakes. */
   addressable: boolean;
+  /** Replayed history: it wakes no watch whose stream starts after it. */
+  replay?: true;
 };
 type Heard = { triggers: Trigger[]; held?: true; discarded?: string[] };
 
@@ -992,12 +994,11 @@ export class AgentRunners {
         if (this.isOwn(agent, event)) continue;
         // A replay waits for room rather than take the drops a burst of
         // live traffic would.
-        const done = this.before(runner, agent, event);
         runner.backlog.push({
           event,
           ...(batch.channelId ? { channelId: batch.channelId } : {}),
-          ...(done.size ? { done } : {}),
           addressable: this.host.unattended(agent, event, true),
+          replay: true,
         });
       }
       if (overflow)
@@ -1007,7 +1008,9 @@ export class AgentRunners {
       if (batch.replay) this.admit(runner);
     }
   }
-  /** The agent's watches whose streams started after a replayed `event`. */
+  /** The agent's watches whose streams started after a replayed `event`.
+   * Asked as it is admitted: an attention change starts its streams in the
+   * same call that saves it, before anything is admitted again. */
   private before(runner: Runner, agent: Agent, event: RelayEvent) {
     return new Set(
       this.watches(runner, agent).flatMap(({ slug, watch }) => {
@@ -1133,8 +1136,13 @@ export class AgentRunners {
       this.submit(runner, agent, job);
     }
     while (runner.backlog.length) {
-      const { event, channelId, done, addressable } = runner
+      const { event, channelId, addressable, replay, ...entry } = runner
         .backlog[0] as Runner["backlog"][0];
+      // Matched against the watches as they are now: one turned on while a
+      // replay waited does not wake for it.
+      const done = replay
+        ? new Set([...(entry.done ?? []), ...this.before(runner, agent, event)])
+        : entry.done;
       const heard = this.heard(runner, agent, event, addressable, done);
       if (
         (heard.held && runner.held.size >= HELD_LIMIT) ||
@@ -1142,7 +1150,16 @@ export class AgentRunners {
       )
         return;
       runner.backlog.shift();
-      this.deliver(runner, agent, event, channelId, addressable, heard, done);
+      this.deliver(
+        runner,
+        agent,
+        event,
+        channelId,
+        addressable,
+        heard,
+        done,
+        replay,
+      );
     }
   }
   /** Gives the agent `event` once, however many times it arrives. */
@@ -1859,6 +1876,7 @@ export class AgentRunners {
     addressable: boolean,
     heard = this.heard(runner, agent, event, addressable),
     done: ReadonlySet<string> = new Set(),
+    replay?: true,
   ) {
     const { triggers } = heard;
     const completed = new Set([
@@ -1874,6 +1892,7 @@ export class AgentRunners {
         ...(channelId ? { channelId } : {}),
         done: completed,
         addressable,
+        ...(replay && { replay }),
       });
       if (runner.held.size > HELD_LIMIT) {
         runner.held.delete(runner.held.keys().next().value as string);
