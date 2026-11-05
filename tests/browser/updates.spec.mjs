@@ -1,3 +1,7 @@
+import {
+  installNativeMediaMenu,
+  checkViewerDownloadFeedback,
+} from "./media-menu-download.mjs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { test, expect } from "./fixture.mjs";
@@ -27,86 +31,91 @@ async function nativeUpdater(
   const granted = capability.permissions.map((permission) =>
     typeof permission === "string" ? permission : permission.identifier,
   );
-  await page.addInitScript(
-    ({ granted, checkResults, installErrors, restartErrors, holdChecks }) => {
-      window.isTauri = true;
-      window.updaterCalls = [];
-      window.checkResults = checkResults;
-      const plugins = ["channels", "github", "bestie", "repos"].map((name) => ({
-        manifest: { id: `buzz.${name}`, name, apiVersion: 1 },
-        source: "bundled",
-        enabled: true,
-        revision: "bundled",
-        previous: null,
-        reloadable: false,
-        error: null,
-      }));
-      let nextCallback = 0;
-      let nextResource = 100;
-      window.__TAURI_INTERNALS__ = {
-        transformCallback: () => ++nextCallback,
-        unregisterCallback() {},
-        invoke: async (command, args) => {
-          if (command === "deep_link_take") return [];
-          if (command === "deep_link_watch") return;
-          if (command === "plugin_catalog")
-            return {
-              status: "ready",
-              externalPluginsPaused: false,
-              catalog: {
-                profile: "fixture",
-                location: "isolated IPC",
-                plugins: structuredClone(plugins),
-              },
-            };
-          if (command === "plugin_module") return "export function apply() {}";
-          // Agent storage starts empty; the app saves agent state there.
-          if (command === "app_agent_state_load") return {};
-          if (command === "app_agent_state_set") return;
-          const plugin = /^plugin:(updater|resources)\|(\w+)$/.exec(command);
-          if (!plugin && command !== "update_restart")
-            throw new Error(`Unexpected command ${command}`);
-          window.updaterCalls.push({ command, args });
-          const [, name, action] = plugin ?? [];
-          const permission = plugin
-            ? `${name === "resources" ? "core:" : ""}${name}:allow-${action.replaceAll("_", "-")}`
-            : "allow-update-restart";
-          if (!granted.includes(permission))
-            throw new Error(
-              `${command} not allowed. Permissions: ${permission}`,
-            );
-          if (command === "plugin:updater|check") {
-            if (
-              holdChecks &&
-              window.updaterCalls.filter((call) => call.command === command)
-                .length > 1
-            )
-              await new Promise((resolve) => {
-                window.finishCheck = resolve;
-              });
-            const result = window.checkResults.shift();
-            if (typeof result === "string") throw new Error(result);
-            return result
-              ? {
-                  rid: ++nextResource,
-                  version: "1.2.3",
-                  currentVersion: "1.0.0",
-                }
-              : null;
-          }
-          if (command === "plugin:updater|download")
-            return new Promise((resolve) => {
-              window.finishDownload = () => resolve(++nextResource);
+  const initializeUpdater = ({
+    granted,
+    checkResults,
+    installErrors,
+    restartErrors,
+    holdChecks,
+  }) => {
+    window.isTauri = true;
+    window.updaterCalls = [];
+    window.checkResults = checkResults;
+    const plugins = ["channels", "github", "bestie", "repos"].map((name) => ({
+      manifest: { id: `buzz.${name}`, name, apiVersion: 1 },
+      source: "bundled",
+      enabled: true,
+      revision: "bundled",
+      previous: null,
+      reloadable: false,
+      error: null,
+    }));
+    let nextCallback = 0;
+    let nextResource = 100;
+    window.__TAURI_INTERNALS__ = {
+      transformCallback: () => ++nextCallback,
+      unregisterCallback() {},
+      invoke: async (command, args) => {
+        if (command === "deep_link_take") return [];
+        if (command === "deep_link_watch") return;
+        if (command === "plugin_catalog")
+          return {
+            status: "ready",
+            externalPluginsPaused: false,
+            catalog: {
+              profile: "fixture",
+              location: "isolated IPC",
+              plugins: structuredClone(plugins),
+            },
+          };
+        if (command === "plugin_module") return "export function apply() {}";
+        // Agent storage starts empty; the app saves agent state there.
+        if (command === "app_agent_state_load") return {};
+        if (command === "app_agent_state_set") return;
+        const plugin = /^plugin:(updater|resources)\|(\w+)$/.exec(command);
+        if (!plugin && command !== "update_restart")
+          throw new Error(`Unexpected command ${command}`);
+        window.updaterCalls.push({ command, args });
+        const [, name, action] = plugin ?? [];
+        const permission = plugin
+          ? `${name === "resources" ? "core:" : ""}${name}:allow-${action.replaceAll("_", "-")}`
+          : "allow-update-restart";
+        if (!granted.includes(permission))
+          throw new Error(`${command} not allowed. Permissions: ${permission}`);
+        if (command === "plugin:updater|check") {
+          if (
+            holdChecks &&
+            window.updaterCalls.filter((call) => call.command === command)
+              .length > 1
+          )
+            await new Promise((resolve) => {
+              window.finishCheck = resolve;
             });
-          if (command === "update_restart" && restartErrors.length)
-            throw new Error(restartErrors.shift());
-          if (command === "plugin:updater|install" && installErrors.length)
-            throw new Error(installErrors.shift());
-        },
-      };
-    },
-    { granted, checkResults, installErrors, restartErrors, holdChecks },
-  );
+          const result = window.checkResults.shift();
+          if (typeof result === "string") throw new Error(result);
+          return result
+            ? {
+                rid: ++nextResource,
+                version: "1.2.3",
+                currentVersion: "1.0.0",
+              }
+            : null;
+        }
+        if (command === "plugin:updater|download")
+          return new Promise((resolve) => {
+            window.finishDownload = () => resolve(++nextResource);
+          });
+        if (command === "update_restart" && restartErrors.length)
+          throw new Error(restartErrors.shift());
+        if (command === "plugin:updater|install" && installErrors.length)
+          throw new Error(installErrors.shift());
+      },
+    };
+  };
+  // One initializer establishes both IPC owners; Playwright does not order separate init scripts.
+  await page.addInitScript({
+    content: `(${initializeUpdater})(${JSON.stringify({ granted, checkResults, installErrors, restartErrors, holdChecks })});(${installNativeMediaMenu})();`,
+  });
 }
 
 async function openUpdates(page, app) {
@@ -171,6 +180,7 @@ test("image review hides the ready update notice until the viewer closes", async
   await expect(notice).toBeHidden();
   await expect(host).toHaveAttribute("inert", "");
   await expect(viewer).not.toHaveAttribute("data-review-opening");
+  await checkViewerDownloadFeedback(page, viewer, notice);
   await page.screenshot({ path: info.outputPath("viewer-notice-hidden.png") });
   for (const key of ["Tab", "Shift+Tab", "F6"]) {
     await page.keyboard.press(key);

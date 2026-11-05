@@ -1,3 +1,7 @@
+import {
+  nativeMediaMenu,
+  checkViewerDownloadFeedback,
+} from "./media-menu-download.mjs";
 import { test, expect } from "./source-fixture.mjs";
 
 // Browser-only: CSS visibility, real inert hit testing and keyboard focus.
@@ -5,6 +9,7 @@ import { test, expect } from "./source-fixture.mjs";
 test("plain media viewer hides inert notices and restores their controls", async ({
   page,
 }) => {
+  await nativeMediaMenu(page);
   await page.goto("/tests/fixtures/media-notices.html");
   const opener = page.getByRole("link", { name: "Open image attachment" });
   const host = page.locator("#buzz-toast-root");
@@ -21,6 +26,7 @@ test("plain media viewer hides inert notices and restores their controls", async
   await expect(notice).toBeAttached();
   await expect(notice).toBeHidden();
   await expect(host).toHaveAttribute("inert", "");
+  await checkViewerDownloadFeedback(page, viewer, notice);
   await page.keyboard.press("Escape");
   await expect(viewer).toHaveCount(0);
   await expect(opener).toBeFocused();

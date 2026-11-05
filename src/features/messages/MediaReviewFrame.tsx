@@ -1,3 +1,4 @@
+import { MediaMenuDownloadStatus } from "./MediaDownloadAction";
 import { useRef, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -162,6 +163,7 @@ export function MediaReviewFrame({
               </>
             }
           />
+          <MediaMenuDownloadStatus />
         </div>
         <div
           className={`${styles.mediaReviewStage} dark`}

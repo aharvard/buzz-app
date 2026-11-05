@@ -1,3 +1,4 @@
+import { MediaMenuDownloadProvider } from "../../src/features/messages/MediaDownloadAction";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { AttachmentImage } from "../../src/features/messages/AttachmentImage";
@@ -35,14 +36,16 @@ if (!root || !toastRoot) throw new Error("Missing fixture hosts");
 createRoot(root).render(
   <StrictMode>
     <ToastProvider portalContainer={toastRoot}>
-      <AttachmentImage
-        attachment={{
-          url: "/shell-gradient.png",
-          kind: "image",
-          name: "Notice isolation image",
-        }}
-        source="/shell-gradient.png"
-      />
+      <MediaMenuDownloadProvider>
+        <AttachmentImage
+          attachment={{
+            url: "/shell-gradient.png",
+            kind: "image",
+            name: "Notice isolation image",
+          }}
+          source="/shell-gradient.png"
+        />
+      </MediaMenuDownloadProvider>
       <div inert>Other inert content remains visible</div>
       <UpdateNotice updates={updates} />
     </ToastProvider>

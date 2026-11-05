@@ -1,3 +1,4 @@
+import { MediaMenuDownloadStatus } from "./MediaDownloadAction";
 import { useMediaReadRecovery } from "./use-media-read-recovery";
 import { useConversationPresentation } from "../conversation/ConversationPresentation";
 import { prepareReviewEntrance } from "./use-review-entrance";
@@ -496,6 +497,7 @@ export function MediaViewer({
               />
             }
           />
+          <MediaMenuDownloadStatus />
         </div>
         {children}
       </section>
