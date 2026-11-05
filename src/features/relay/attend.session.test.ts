@@ -210,6 +210,54 @@ it("gives each batch of attended channels' lookups its own read deadline, so a s
   await vi.waitFor(() => expect(live()).toContain(OPEN));
 });
 
+it("reads an attended channel once while its read is in flight, through a new attendance and a retry", async () => {
+  const h = harness();
+  // Five batches of channels the relay never finds.
+  const ids = Array.from(
+    { length: 640 },
+    (_, index) =>
+      `66666666-6666-4666-8666-${index.toString(16).padStart(12, "0")}`,
+  );
+  const last = ids[512] ?? "";
+  const metadata = () =>
+    h.wire.pending.filter(
+      (entry) =>
+        !entry.signal?.aborted && entry.filters.some((filter) => filter["#d"]),
+    );
+  let reads = 0;
+  const answer = () => {
+    const [read] = metadata();
+    assert(read);
+    if (asks(read.filters, last)) reads += 1;
+    h.wire.pending.splice(h.wire.pending.indexOf(read), 1);
+    read.respond([]);
+  };
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    h.owner.session.attend(ids);
+    await h.discover();
+    await vi.waitFor(() => expect(metadata()).toHaveLength(1));
+    // A new watch set attends the same channels before the old one stops.
+    h.owner.session.attend(ids);
+    await vi.advanceTimersByTimeAsync(0);
+    // Each read takes 9 seconds. The first one's end arms the 30-second
+    // retry, which fires while the last batch is still in flight.
+    for (let batch = 0; batch < 5; batch += 1) {
+      await vi.advanceTimersByTimeAsync(9_000);
+      answer();
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    // What the retry queued: the first four batches again, not the fifth.
+    while (metadata().length) {
+      answer();
+      await vi.advanceTimersByTimeAsync(0);
+    }
+  } finally {
+    vi.useRealTimers();
+  }
+  expect(reads).toBe(1);
+});
+
 it("resolves the channels a read of every channel finds, of any kinds, once discovery is done", async () => {
   const h = harness();
   const read = () =>

@@ -1376,9 +1376,13 @@ export function createRelaySession(
     if (!unknown.length) attendDelay = ATTEND_RETRY_MS;
     if (unknown.some((id) => attendChecked.has(id) && !attendReading.has(id)))
       retryAttendedLater();
-    const fresh = unknown.filter((id) => !attendChecked.has(id));
+    // One whose read is still in flight is checked by that read: a new
+    // attendance or a retry must not queue a second read of it.
+    const fresh = unknown.filter(
+      (id) => !attendChecked.has(id) && !attendReading.has(id),
+    );
+    for (const id of unknown) attendChecked.add(id);
     for (const id of fresh) {
-      attendChecked.add(id);
       attendReading.add(id);
       learnedForAgents.add(id);
     }
@@ -2375,7 +2379,8 @@ export function createRelaySession(
           channelIds.filter((id) => /^[a-zA-Z0-9_-]{1,128}$/.test(id)),
         ),
       ];
-      // Unread or refused before, it is read again, and soon.
+      // Unread or refused before, it is read again, and soon; one read in
+      // flight now answers for it.
       for (const id of ids) attendChecked.delete(id);
       attendDelay = ATTEND_RETRY_MS;
       attended.add(ids);
