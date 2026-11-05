@@ -34,7 +34,7 @@ import { bestieBaseTarget, bestieRoute, bestieThreadTarget } from "./routes";
 import styles from "./PinnedBestie.module.css";
 
 /** Account-saved Besties use their canonical verified DM. No saved choice means
- * the caller keeps Riley's hosted setup page. */
+ * the caller keeps the hosted setup page. */
 export function PinnedBestie({
   relay,
   host,
