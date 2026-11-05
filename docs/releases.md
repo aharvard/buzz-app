@@ -248,10 +248,10 @@ gh attestation verify <archive> --repo aaif-goose/goose \
 ```
 
 Then update version, source revision, versioned asset URLs and SHA-256 values
-together, and review upstream license/notice changes. Move the
-[Buzz Security plugin](https://github.com/squareup/buzz-plugin-security)'s
-protected Goose pin to the same revision before that Buzz release ships. This
-release is mutable; committed hashes bind the downloaded bytes. Never resolve
+together, and review upstream license/notice changes. Move the Buzz Security
+plugin's protected Goose pin to the same revision before that Buzz release
+ships. This release is mutable; committed hashes bind the downloaded bytes.
+Never resolve
 `latest` at build time.
 The obsolete `target/goose-acp-src` and `target/goose-acp-build` caches are unused
 and can be removed locally when no old source build is running.
