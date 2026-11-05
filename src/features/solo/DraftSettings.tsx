@@ -16,7 +16,11 @@ import {
   readWorkspace,
   workspaceCanvas,
 } from "./workspace";
-import { ChatInstructions, ChatSettingsDialog } from "./ChatSettingsDialog";
+import {
+  ChatInstructions,
+  ChatSettingsDialog,
+  instructionsCanvas,
+} from "./ChatSettingsDialog";
 
 /** Edits only the local draft; first-send owns remote setup and its retry receipt. */
 export function DraftSettings({
@@ -61,7 +65,9 @@ export function DraftSettings({
   }).lifetime;
   const [workspace, setWorkspace] = useState(emptyWorkspace);
   const [raw, setRaw] = useState<string>();
-  const [loaded, setLoaded] = useState(false);
+  // The Canvas the dialog opened with; undefined until it has loaded.
+  const [opened, setOpened] = useState<string>();
+  const loaded = opened !== undefined;
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: attempt explicitly retries a failed settings read.
@@ -79,7 +85,7 @@ export function DraftSettings({
         } catch {
           setRaw(content);
         }
-        setLoaded(true);
+        setOpened(content);
       } catch (reason) {
         if (active)
           setError(reason instanceof Error ? reason.message : String(reason));
@@ -92,6 +98,11 @@ export function DraftSettings({
   return (
     <ChatSettingsDialog
       dismissOnOutsideClick={false}
+      dirty={
+        value !== name ||
+        ttl !== ttlSeconds ||
+        (loaded && instructionsCanvas(workspace, raw) !== opened)
+      }
       finalFocus={finalFocus}
       close={close}
       saveDisabled={!loaded || !!nameError || !!lifetimeError}
