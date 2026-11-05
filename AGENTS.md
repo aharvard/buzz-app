@@ -242,6 +242,16 @@ channels, or real employees' names and personal setups. Public Builderlab
 (`app.builderlab.xyz`, `*.communities.builderlab.xyz`) is a supported public
 service and is fine.
 
+The rule covers functionality, not only identifiers. Every feature here must be
+generic: useful and complete for any community or distributor, with no knowledge
+of one company's internal services, workflows or identity setup. Functionality
+that only serves Block belongs in a plugin kept in a private repository and
+bundled by Block's own builds. A host change made for such a plugin must be a
+general-purpose extension point: a documented public contract that an
+independent plugin author could reasonably use, inert when no plugin uses it,
+and never naming, detecting or special-casing a specific plugin, organization or
+service. Review judges a change's purpose and approach, not just its strings.
+
 A distributor's values come from build-time settings set by that distributor's
 release build: `BUZZ_BUILDERLAB_URL`, `BUZZ_BUILDERLAB_APPS_DOMAIN`,
 `BUZZ_BUILDERLAB_APPS_CONTROL_PLANE`, `BUZZ_BUILD_FEDERATED_IDENTITY_CONFIG`,
