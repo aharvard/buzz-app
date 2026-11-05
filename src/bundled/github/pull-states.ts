@@ -719,9 +719,9 @@ export function createPullStates(gh: GitHubCli | undefined): PullStates {
   let asking = 0;
   /** Tells whoever watches `urls` that their states were recorded. */
   const notify = (urls: readonly string[]) => {
+    // One reader that throws neither fails the read nor keeps it from
+    // the rest.
     for (const url of urls)
-      // One reader that throws neither fails the read nor keeps it from
-      // the rest.
       for (const listener of listeners.get(url) ?? [])
         try {
           listener.notify();
