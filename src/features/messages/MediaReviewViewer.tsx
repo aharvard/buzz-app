@@ -13,6 +13,7 @@ import { Checkbox } from "../../shared/design-system/ui/Checkbox";
 import { Button } from "../../shared/design-system/ui/Button";
 import { IconButton } from "../../shared/design-system/ui/IconButton";
 import {
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -37,7 +38,7 @@ import { rowProfileIds } from "../relay/membership";
 import { useKnownAgentPubkeys } from "../agents/use-known";
 import { MessageComposer } from "./MessageComposer";
 import { ImageReviewStage } from "./ImageReviewStage";
-import { MessageRow } from "./MessageRow";
+import { MessageRow, type MessageLinkOrigin } from "./MessageRow";
 import {
   useActivityPresentation,
   useStableRowActivity,
@@ -61,7 +62,8 @@ type MediaReviewViewerProps = {
   initialTime: number;
   hasComments?: boolean;
   restoreFocus?: RefObject<HTMLElement | null>;
-  onOpenLink(url: string): boolean;
+  canOpenLink?: ((target: string) => boolean) | undefined;
+  onOpenLink(url: string, origin?: MessageLinkOrigin): boolean;
   close(): void;
 };
 
@@ -236,6 +238,7 @@ function ReviewShell({
   origin,
   close,
   onOpenLink,
+  canOpenLink,
   rootId,
   replies = [],
   editMessages = [],
@@ -266,6 +269,17 @@ function ReviewShell({
     attachment.kind === "video" ? source : undefined,
   ).unavailable;
   const frame = useRef<HTMLElement>(null);
+  // A followed comment link drops the explicit return target. useModalBoundary
+  // overrides focus moved during the close only when restoreFocus?.current is
+  // set, so a destination that takes focus as the review closes keeps it.
+  const followed = useRef(false);
+  const latestRestore = useRef(restoreFocus);
+  latestRestore.current = restoreFocus;
+  const [returnFocus] = useState(() => ({
+    get current() {
+      return followed.current ? null : (latestRestore.current?.current ?? null);
+    },
+  }));
   const retryThread = () => {
     // Refresh removes Retry while loading; keep keyboard input in the viewer.
     frame.current?.focus({ preventScroll: true });
@@ -390,7 +404,7 @@ function ReviewShell({
       }
       commentsOpen={commentsOpen}
       commentsMotion={commentsMotion}
-      restoreFocus={restoreFocus}
+      restoreFocus={returnFocus}
       close={close}
       navigate={mixedGallery ? navigateMedia : undefined}
       actions={
@@ -468,6 +482,12 @@ function ReviewShell({
                   session={session}
                   scope={scope}
                   extensions={extensions}
+                  canOpenLink={canOpenLink}
+                  onOpenLink={onOpenLink}
+                  close={() => {
+                    followed.current = true;
+                    close();
+                  }}
                   selectAttachment={selectAttachment}
                   {...(attachment.kind === "video" && timecodesSeekable
                     ? { seek }
@@ -593,6 +613,9 @@ function ReviewComments({
   session,
   scope,
   extensions,
+  canOpenLink,
+  onOpenLink,
+  close,
   seek,
   selectAttachment,
 }: {
@@ -604,6 +627,9 @@ function ReviewComments({
   session: RelaySession;
   scope: string;
   extensions?: ConversationExtensions | undefined;
+  canOpenLink: ((target: string) => boolean) | undefined;
+  onOpenLink(url: string, origin?: MessageLinkOrigin): boolean;
+  close(): void;
   seek?: (seconds: number) => void;
   selectAttachment(attachment: Attachment, initialTime: number): void;
 }) {
@@ -631,10 +657,21 @@ function ReviewComments({
         .ensure(authors.split(":"), "background")
         .catch(() => {});
   }, [session.profiles, authors, profileGeneration]);
-  // Comment links stay inert: no host tab opener reaches them behind the review,
-  // so mentions render as static names.
+  const openThreadTab = useContext(LinkThreadTabContext);
+  // Following a comment link leaves the review, as a link leaves a dialog: the
+  // host shows the destination, then the review closes. A refusal keeps it.
+  const leave = (opened: boolean) => {
+    if (opened) close();
+    return opened;
+  };
   return (
-    <LinkThreadTabContext value={undefined}>
+    <LinkThreadTabContext
+      value={
+        openThreadTab &&
+        ((channel, message, root) =>
+          leave(openThreadTab(channel, message, root)))
+      }
+    >
       <section
         ref={comments}
         data-message-scroller
@@ -662,7 +699,8 @@ function ReviewComments({
                 profile={profiles.get(row.authorId)}
                 agentPubkeys={agentPubkeys}
                 media={session.media}
-                onOpenLink={() => false}
+                canOpenLink={canOpenLink}
+                onOpenLink={(url, origin) => leave(onOpenLink(url, origin))}
                 day={
                   index === 0 ||
                   new Date(
