@@ -321,7 +321,7 @@ it("preserves agent ownership for an authored alias when the public name is synt
             },
           ],
           [human, { name: "Honey" }],
-          [owner, { name: "Salman" }],
+          [owner, { name: "Odette" }],
         ]),
       subscribe: () => () => {},
       ensure: async () => {},
@@ -339,7 +339,7 @@ it("preserves agent ownership for an authored alias when the public name is synt
     [{ pubkey: agent, name: "Honey" }],
   );
   expect(label(human)?.name).toBe("Honey");
-  expect(label(agent)?.name).toBe("Salman’s Honey");
+  expect(label(agent)?.name).toBe("Odette’s Honey");
 });
 
 it("reuses one policy run per candidate scope across mixed case, outside keys, and updates", () => {
@@ -417,10 +417,10 @@ it("reuses one policy run per candidate scope across mixed case, outside keys, a
   expect(resolve).toHaveBeenCalledTimes(31);
   expect(scoped(c)?.name).toBe(suffixed(c));
   expect(resolve).toHaveBeenCalledTimes(32);
-  profiles = new Map([...profiles, [b, { name: "Blake" }]]);
+  profiles = new Map([...profiles, [b, { name: "Orrin" }]]);
   for (const listener of listeners) listener();
   expect(scoped(a)?.name).toBe("Alex");
-  expect(scoped(b)?.name).toBe("Blake");
+  expect(scoped(b)?.name).toBe("Orrin");
   expect(scoped(c)?.name).toBe(suffixed(c));
   expect(resolve).toHaveBeenCalledTimes(34);
 });

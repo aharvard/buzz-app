@@ -4661,28 +4661,28 @@ it("shows only messages once text sits beside an operator", async () => {
     [
       metadata(relay, "bugs", "buzz-bugs"),
       roster(relay, "bugs", [viewer.pubkey]),
-      metadata(relay, "kr", "kalvin-reviewers"),
+      metadata(relay, "kr", "tamsin-reviewers"),
       roster(relay, "kr", [viewer.pubkey]),
     ],
-    [message(viewer, "bugs", "kalvin found it", 1700000001)],
+    [message(viewer, "bugs", "tamsin found it", 1700000001)],
   );
   try {
     render(
       <SearchResults
         session={owner.session}
-        query="in:#buzz-bugs kalvin"
+        query="in:#buzz-bugs tamsin"
         {...operatorProps}
       />,
     );
     expect(
-      await screen.findByRole("option", { name: /kalvin found it/ }),
+      await screen.findByRole("option", { name: /tamsin found it/ }),
     ).toBeVisible();
     expect(reads.flat()).toEqual([
-      expect.objectContaining({ "#h": ["bugs"], search: "kalvin" }),
+      expect.objectContaining({ "#h": ["bugs"], search: "tamsin" }),
     ]);
     expect(screen.queryByRole("group", { name: "Channels" })).toBeNull();
     expect(
-      screen.queryByRole("option", { name: /kalvin-reviewers/ }),
+      screen.queryByRole("option", { name: /tamsin-reviewers/ }),
     ).toBeNull();
   } finally {
     cleanup();

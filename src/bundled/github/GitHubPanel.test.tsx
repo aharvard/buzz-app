@@ -1060,7 +1060,7 @@ it("keeps a required review pending while an approval is in", async () => {
     pullData({
       reviewDecision: "REVIEW_REQUIRED",
       reviewRequests: {
-        nodes: [{ requestedReviewer: { login: "kalvin" } }],
+        nodes: [{ requestedReviewer: { login: "tamsin" } }],
       },
     }),
   );
@@ -1073,7 +1073,7 @@ it("keeps a required review pending while an approval is in", async () => {
   );
   await screen.findByRole("heading", { name: "Private change #9" });
   expect(row("Review")).toHaveTextContent(
-    "Required · approved by wen · waiting on kalvin",
+    "Required · approved by wen · waiting on tamsin",
   );
 });
 

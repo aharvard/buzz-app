@@ -1,7 +1,5 @@
 # Practical information-flow for Buzz agents
 
-Author: Jordan Mecom
-
 Draft
 
 Aug 27, 2026

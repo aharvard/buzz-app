@@ -67,7 +67,7 @@ const prompt = (id: number, context: string, content: string) => ({
           `Event ID: ${message}`,
           "Channel: Alpha (#alpha)",
           "Kind: 9",
-          "From: Salman (npub: npub1xyz, hex: ff)",
+          "From: Odette (npub: npub1xyz, hex: ff)",
           "Time: 2026-10-07T12:00:00+00:00",
           `Content: ${content}`,
           'Tags: [["h","alpha"]]',
@@ -303,7 +303,7 @@ it("projects one thread turn into prompt, thought, tool, permission and reply", 
   });
   expect(request).toMatchObject({
     text: "please\nrun tests",
-    author: "Salman",
+    author: "Odette",
     steer: false,
   });
   expect(thought).toMatchObject({ text: "Consider tests." });
@@ -605,8 +605,8 @@ it("names an exact-record prompt's author in the turn, as the viewer knows them"
   // The cached transcript for these records names no one.
   expect(author()).not.toHaveProperty("author");
   expect(
-    author((pubkey) => (pubkey === sender ? "Salman" : undefined)),
-  ).toMatchObject({ type: "prompt", text: "hi", author: "Salman" });
+    author((pubkey) => (pubkey === sender ? "Odette" : undefined)),
+  ).toMatchObject({ type: "prompt", text: "hi", author: "Odette" });
   expect(author()).not.toHaveProperty("author");
 });
 

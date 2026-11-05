@@ -221,9 +221,9 @@ it("names the person whose message prompted a turn", () => {
     snapshot: () => 0,
     subscribe: () => () => {},
     resolve: (key: string, fallback?: string) =>
-      key === other ? "Salman" : fallback,
+      key === other ? "Odette" : fallback,
   } as unknown as IdentityNameView;
   render(<ActivityPanel agent={agent} activity={activity} names={names} />);
-  expect(screen.getByText("Salman")).toBeInTheDocument();
+  expect(screen.getByText("Odette")).toBeInTheDocument();
   expect(screen.getByText("go")).toBeInTheDocument();
 });

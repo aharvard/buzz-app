@@ -704,9 +704,9 @@ it("binds signed names beside removed attachments that cannot join them", () => 
     relay = keypair();
   const media = "https://relay.test/media/shot.png";
   const profiles = new Map([
-    [person.pubkey, { name: "kalvin" }],
+    [person.pubkey, { name: "tamsin" }],
     [agent.pubkey, { name: "am", isAgent: true as const }],
-    [namesake.pubkey, { name: "kalvin chau" }],
+    [namesake.pubkey, { name: "tamsin vale" }],
   ]);
   const render = (
     content: string,
@@ -739,10 +739,10 @@ it("binds signed names beside removed attachments that cannot join them", () => 
     );
   expect(
     render(
-      "@kalvin <https://github.com/block/buzz/pull/7904> :pray-for-stamp:\n![image](https://static.example/stamp.gif)",
+      "@tamsin <https://github.com/block/buzz/pull/7904> :pray-for-stamp:\n![image](https://static.example/stamp.gif)",
       [person.pubkey],
     ),
-  ).toMatch(chip("person", "kalvin"));
+  ).toMatch(chip("person", "tamsin"));
   expect(
     render(
       `@am i like the \`:ls\` feature\n\n![image.png](<${media}>)`,
@@ -751,12 +751,12 @@ it("binds signed names beside removed attachments that cannot join them", () => 
     ),
   ).toMatch(chip("agent", "am"));
   // Removal may end a name, but a longer name must not cross the seam.
-  const joined = render("@kalvin![x](https://example.test/a.png) chau", [
+  const joined = render("@tamsin![x](https://example.test/a.png) vale", [
     person.pubkey,
     namesake.pubkey,
   ]);
-  expect(joined).toMatch(chip("person", "kalvin"));
-  expect(joined).not.toContain("View kalvin chau profile");
+  expect(joined).toMatch(chip("person", "tamsin"));
+  expect(joined).not.toContain("View tamsin vale profile");
 });
 
 it.each([9, 40002])(
