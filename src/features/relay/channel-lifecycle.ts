@@ -6,7 +6,7 @@ import { PublishRejected } from "./outbox";
 import { isTransientFailure, readErrorKind } from "./errors";
 import { retryRead } from "./read-retry";
 import { yieldToHost } from "./yield";
-import { hasTag, newer, type RelayEvent } from "./events";
+import { hasTag, newer, type ReadFilter, type RelayEvent } from "./events";
 import { openMetadata } from "./discovery";
 import {
   channelTypeTag,
@@ -23,7 +23,12 @@ import {
 
 /** The channel state the action relied on may be out of date; refreshing
  * channels is the recovery. */
-export class ChannelLifecycleStale extends Error {}
+export class ChannelLifecycleStale extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ChannelLifecycleStale";
+  }
+}
 
 /** No automatic or same-dialog retry after a request may have reached the relay. */
 export class ChannelLifecycleUnconfirmed extends ChannelLifecycleStale {
@@ -45,6 +50,8 @@ export interface ChannelLifecycleCapability {
   load(
     channelId: string,
     signal?: AbortSignal,
+    /** "strong" reads the writer, for a reread after a refresh. */
+    options?: Pick<ReadFilter, "consistency">,
   ): Promise<ChannelLifecycleSettings>;
   run(
     action: ChannelLifecycleCommand,
@@ -179,9 +186,10 @@ export function createChannelLifecycle({
     // Which action needs owner-agent evidence; "any" checks for every action
     // the channel's state allows and false skips the optional profile reads.
     need: OwnedAgentAction | "any" | false = "any",
+    strong = false,
   ) {
     assertAccess(id);
-    const events = await read([39000, 39001, 39002], id, signal);
+    const events = await read([39000, 39001, 39002], id, signal, false, strong);
     assertAccess(id);
     const settings = lifecycleSettings(events, id, viewer, relayAuthor);
     const metadata = lifecycleRecord(events, 39000, id, relayAuthor);
@@ -222,6 +230,7 @@ export function createChannelLifecycle({
             reader.read(
               batch.map((pubkey) => ({
                 kinds: [0],
+                ...(strong ? { consistency: "strong" as const } : {}),
                 authors: [pubkey],
                 limit: 1,
               })),
@@ -361,10 +370,18 @@ export function createChannelLifecycle({
       refresh = operation;
       return operation;
     },
-    async load(value: string, caller?: AbortSignal) {
+    async load(
+      value: string,
+      caller?: AbortSignal,
+      options?: Pick<ReadFilter, "consistency">,
+    ) {
       const id = lifecycleChannelId(value);
+      const strong = options?.consistency === "strong";
       return owned({ id, caller }, (signal) =>
-        retryRead(() => reread(signal, () => load(id, signal)), signal),
+        retryRead(
+          () => reread(signal, () => load(id, signal, "any", strong)),
+          signal,
+        ),
       );
     },
     async run(
