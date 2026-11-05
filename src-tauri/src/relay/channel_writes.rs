@@ -83,7 +83,21 @@ fn details_labels(labels: &[Vec<String>]) -> bool {
         }
     }
 }
+/// The welcome message is `""` (restore the default) or 1–1000 scalar values
+/// of plain text, matching the relay's rules.
+fn welcome(text: &str) -> bool {
+    text.is_empty()
+        || (!text.trim().is_empty()
+            && text.chars().count() <= 1000
+            && text.chars().all(|c| c == '\n' || !c.is_control()))
+}
 fn lifecycle(event: &EventTemplate) -> bool {
+    // Owners/admins set the community's welcome channel with its full state.
+    if event.kind == 9002 && common(event) && event.tags.len() == 3 {
+        return tag(event, 0, "h").is_some_and(uuid)
+            && tag(event, 1, "landing") == Some("true")
+            && tag(event, 2, "welcome").is_some_and(welcome);
+    }
     if !matches!(event.kind, 9002 | 9008 | 9021 | 9022 | 41012)
         || !common(event)
         || event.tags.len() != if event.kind == 9002 { 2 } else { 1 }
@@ -484,6 +498,66 @@ mod boundary_tests {
             command["tags"] = tags;
             assert!(validate("channel-lifecycle", &command, None).is_err());
         }
+    }
+    #[test]
+    fn lifecycle_accepts_only_the_exact_landing_command() {
+        let channel = uuid::Uuid::nil().to_string();
+        let event = serde_json::json!({
+            "kind": 9002,
+            "created_at": 1700000010,
+            "content": "",
+            "tags": [["h", channel], ["landing", "true"], ["welcome", ""]]
+        });
+        let longest = "é".repeat(1000);
+        for text in ["", "Hi all!\nIntroduce yourself.", longest.as_str()] {
+            let mut command = event.clone();
+            command["tags"][2][1] = serde_json::json!(text);
+            assert!(validate("channel-lifecycle", &command, None).is_ok());
+            assert!(validate("channel-details", &command, None).is_err());
+        }
+        for text in [
+            serde_json::json!(" \n "),
+            serde_json::json!("a".repeat(1001)),
+            serde_json::json!("tab\there"),
+            serde_json::json!("line\r\nbreak"),
+            serde_json::json!("bell\u{7}"),
+            serde_json::json!("c1\u{85}"),
+            Value::Null,
+            serde_json::json!(1),
+        ] {
+            let mut command = event.clone();
+            command["tags"][2][1] = text;
+            assert!(validate("channel-lifecycle", &command, None).is_err());
+        }
+        for tags in [
+            serde_json::json!([["h", channel], ["landing", "false"], ["welcome", ""]]),
+            serde_json::json!([["h", channel], ["landing", "true"]]),
+            serde_json::json!([["h", channel], ["welcome", ""]]),
+            serde_json::json!([["h", channel], ["welcome", ""], ["landing", "true"]]),
+            serde_json::json!([["h", channel], ["landing", "true"], ["welcome"]]),
+            serde_json::json!([["h", channel], ["landing", "true"], ["archived", "true"]]),
+            serde_json::json!([
+                ["h", channel],
+                ["landing", "true"],
+                ["welcome", "", "extra"]
+            ]),
+            serde_json::json!([
+                ["h", channel],
+                ["landing", "true"],
+                ["welcome", ""],
+                ["welcome", ""]
+            ]),
+        ] {
+            let mut command = event.clone();
+            command["tags"] = tags;
+            assert!(validate("channel-lifecycle", &command, None).is_err());
+        }
+        let mut delete = event.clone();
+        delete["kind"] = serde_json::json!(9008);
+        assert!(validate("channel-lifecycle", &delete, None).is_err());
+        let mut content = event;
+        content["content"] = serde_json::json!("x");
+        assert!(validate("channel-lifecycle", &content, None).is_err());
     }
     #[test]
     fn lifecycle_accepts_only_exact_archive_and_auto_join_values() {

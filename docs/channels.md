@@ -578,6 +578,17 @@ ownership; the relay accepts the flag only from community owners and admins) and
 confirms the result from the republished `39000`: the relay advertises the flag
 as a bare `auto_join` tag only while it is in effect, so success is that tag's
 presence or absence, not the written value.
+The community **Welcome** settings card ([communities](communities.md#welcome-channel))
+uses the same route for the welcome channel. Each save is one `9002` carrying the
+full state, `landing=true` plus `welcome=<text>`, or an empty `welcome` for the
+default message; the relay accepts a repeat of the current state. Before signing
+and again before publishing, the lifecycle owner requires fresh relay metadata
+for an active, open stream channel without an expiry. It confirms the save with a
+strong reread of the target's `39000`: the relay advertises a bare `landing` tag
+there while the channel is designated, plus a `welcome` tag when the message is
+custom. A `welcome` tag without `landing` is ignored. The relay's `invalid:`
+reason is shown with the draft kept. When the result can't be confirmed, the
+card asks the admin to save again.
 A published lifecycle command keeps its bounded, fresh, strong confirmation
 when access loss retires access-dependent work. Retired confirmation reads
 are reread; caller cancellation, session clear/disposal and the original deadline
@@ -585,11 +596,13 @@ still abort its signal. A rejected publication or definitive confirmation-read
 failure still fails the command; an aborted read alone never confirms it. These signals
 do not forcibly interrupt an in-flight native publication IPC.
 Both hosts admit only the exact two-tag `9002` shape with `archived=true` (Archive),
-`archived=false` (Unarchive) or `auto_join=true|false` (the switch); other values,
+`archived=false` (Unarchive) or `auto_join=true|false` (the switch), and the
+three-tag welcome shape with `landing=true` and a `welcome` of 1–1,000 characters
+(no control characters except line breaks) or empty; other values,
 extra tags, cross-route commands and
 altered or foreign signatures are rejected. Hosts without this capability display
-an unavailable notice. Native Unarchive and the auto-join switch require
-rebuilding/restarting the desktop
+an unavailable notice. Native Unarchive, the auto-join switch and the welcome
+command require rebuilding/restarting the desktop
 binary; updating the frontend alone does not update the Rust validator. Rust
 validator and production-IPC tests cover both values, but do not establish an
 installed desktop Archive → Unarchive round trip against a live relay; that
@@ -1284,11 +1297,20 @@ concurrently with the real connection handshake. Saved groups, stars and channel
 names are display data, not a confirmed preference mutation base. No cache means
 the ordinary cold connection flow; unavailable/corrupt storage never grants access.
 
-With no saved selection, Messages opens the first channel the relay flags
-`auto_join` (its starter channel for new members), then the first non-Solo
-channel; an explicit empty route bypasses both. The relay adds people to its
-`auto_join` channels itself, and the resulting membership hints populate the
-sidebar live:
+With no saved selection, Messages opens the community's welcome channel if the
+viewer is in it, then the first channel the relay flags `auto_join` (its starter
+channel for new members), then the first non-Solo channel; an explicit empty
+route bypasses all three. The welcome channel is the stream channel whose
+relay-signed `39000` carries `landing`. Its timeline starts with a welcome card
+for every viewer, even with no messages: the community name and its custom
+message, or the default one. The card is not a message, so it has no unread
+state, actions or dismissal. While the channel list or its metadata is still
+loading, Messages shows **Opening your channels…** instead of the blank
+selection view. If the list loads with no channels, an empty state offers
+**Try again**, which reconnects so the relay can retry adding the person. The
+client never joins the welcome channel for them. The relay adds people to its
+welcome and `auto_join` channels itself, welcome channel first, and the
+resulting membership hints populate the sidebar live:
 
 - A community that requires relay membership adds a member once, when they join
   its roster: an invite claim that answers `joined`, or an admin's kind `9030`
@@ -1302,7 +1324,9 @@ sidebar live:
 Either way a later leave stands: the roster path does not run again for an
 existing member, and on the open path a leave or removal keeps a membership
 record, so the relay does not add the person back. The client only reads the
-flag; it never sends a join on a member's behalf.
+flag; it never sends a join on a member's behalf. The welcome channel is joined
+only at a person's first entry, on either path: moving the designation never adds
+anyone who already entered.
 
 A cached roster can display previously downloaded, reverified history for up to
 24 hours. It cannot authorize head/history reads, unread evidence, typing or

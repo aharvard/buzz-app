@@ -7,8 +7,14 @@ import { SettingsCardsService } from "../../features/settings/service";
 import { createAdminAccess } from "../admin-access";
 import type { CommunityReader } from "../../features/communities/service";
 import type { RelayStaffBackend } from "../../features/relay-staff/contract";
+import { communityRequest } from "../../features/communities/api";
 import { apply, inject } from "./index";
 import manifest from "./manifest.json";
+
+vi.mock("../../features/communities/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../features/communities/api")>()),
+  communityRequest: vi.fn(async () => ({ policy: null })),
+}));
 
 const relayKey = "f".repeat(64);
 const owner = "0".repeat(64);
@@ -94,3 +100,67 @@ it("registers the Membership card under the key the community rail opens", async
   await root.fiber.dispose();
   access.dispose();
 });
+
+it.each([
+  [true, true],
+  [false, false],
+])(
+  "shows the Welcome card to owners when the relay advertises welcome channels: %s",
+  async (landingChannels, visible) => {
+    vi.mocked(communityRequest).mockResolvedValue({
+      policy: null,
+      landingChannels,
+    });
+    const root = new Context();
+    root.provide("pluginStatus", {
+      isActive: () => true,
+      subscribe: () => () => {},
+    });
+    const data = relay();
+    root.provide("relay", data);
+    const access = createAdminAccess(
+      data,
+      {
+        snapshot: () => ({
+          status: "ready",
+          selected: "https://primary.example",
+          viewer: owner,
+        }),
+        subscribe: () => () => {},
+      } as unknown as CommunityReader,
+      { available: false } as RelayStaffBackend,
+    );
+    root.provide("adminAccess", access);
+    const cards = new SettingsCardsService(root);
+    const releaseVisibility = cards.retainVisibility();
+    const fiber = root
+      .extend({ pluginOwner: { id: manifest.id, revision: "one" } })
+      .plugin({ name: manifest.id, inject, apply });
+    await fiber.await();
+    await flush();
+
+    await vi.waitFor(() =>
+      expect(cards.visibility("buzz.moderation/welcome")).toBe(visible),
+    );
+    expect(communityRequest).toHaveBeenCalledWith(
+      "https://primary.example",
+      "info",
+      undefined,
+      expect.any(AbortSignal),
+    );
+    const card = cards
+      .snapshot()
+      .find((entry) => entry.key === "buzz.moderation/welcome");
+    if (visible)
+      expect(card).toMatchObject({
+        title: "Welcome",
+        section: "administration",
+      });
+    else expect(card).toBeUndefined();
+
+    await fiber.dispose();
+    releaseVisibility();
+    await root.fiber.dispose();
+    access.dispose();
+  },
+);

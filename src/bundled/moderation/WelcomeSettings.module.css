@@ -1,0 +1,18 @@
+.editor {
+  display: grid;
+  gap: var(--space-6);
+  min-width: 0;
+}
+.editor[data-placeholder] {
+  visibility: hidden;
+}
+.fields {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.preview {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}

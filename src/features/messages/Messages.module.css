@@ -104,6 +104,12 @@
 .edge[data-history-space] {
   min-height: calc(var(--size-control) + var(--space-4));
 }
+/* Start content stacks at the reading measure, aligned with the rows below. */
+.edge[data-start] {
+  flex-direction: column;
+  align-items: stretch;
+  padding-block: var(--space-panel-inset) var(--space-2);
+}
 .feed[data-chat-presentation] .edge:not([data-history-space]) {
   min-height: var(--space-1);
 }

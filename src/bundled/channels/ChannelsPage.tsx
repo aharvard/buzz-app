@@ -83,6 +83,7 @@ import {
   LockIcon,
   ChatCircleIcon,
   GearIcon,
+  HashIcon,
 } from "../../shared/design-system/icons/index";
 import { channelIcon } from "../../features/channels/channel-icon";
 import type { RelayData } from "../../features/relay/service";
@@ -562,7 +563,11 @@ function ChannelWorkspace({
         // A computed choice stays put while its channel is listed, so a channel
         // flagged or added later never swaps the one being read.
         channels.find((channel) => channel.id === chosen.current) ??
-        // A new member lands in the community's default channel when it has one.
+        // A new member lands in the community's welcome channel, else in its
+        // default channel when it has one.
+        channels.find(
+          (channel) => channel.landing && channel.channelType === "stream",
+        ) ??
         channels.find(
           (channel) => channel.autoJoin && channel.channelType !== "solo",
         ) ??
@@ -575,6 +580,17 @@ function ChannelWorkspace({
     requestedDestination?.huddle || requestedDestination?.metadataPending
       ? undefined
       : requestedDestination;
+  // With nothing requested, the default channel is still arriving rather than
+  // unchosen: a new member's welcome channel can follow the first list.
+  const defaulting = !emptyDestination && !requestedChannel && !current;
+  const opening =
+    defaulting &&
+    (list.status === "idle" || list.status === "loading" || metadataPending);
+  const noChannels =
+    defaulting &&
+    list.status === "ready" &&
+    !metadataPending &&
+    !channels.some((channel) => channel.channelType !== "solo");
   useLayoutEffect(() => {
     // An open draft resolves nothing; keep the choice for when it closes.
     if (requestedDestination) chosen.current = requestedDestination.id;
@@ -2012,7 +2028,7 @@ function ChannelWorkspace({
         }
         tabIndex={-1}
         ref={historyContainer}
-        className={`relative flex min-h-0 flex-col${current ? " flex-1" : ""}`}
+        className={`relative flex min-h-0 flex-col${current || noChannels ? " flex-1" : ""}`}
       >
         {current ? (
           <ChannelBody
@@ -2030,17 +2046,40 @@ function ChannelWorkspace({
             revealMessageId={
               sent?.channelId === current.id ? sent.id : undefined
             }
+            landing={current.landing && current.channelType === "stream"}
+            welcomeMessage={current.welcome}
+            communities={communities}
           />
+        ) : noChannels ? (
+          <div className={styles.failed}>
+            <EmptyState
+              icon={<HashIcon />}
+              title="You’re not in any channels yet"
+              description="Channels you join will appear here. If you just joined this community, try again."
+              action={
+                <Button
+                  type="button"
+                  variant="primary"
+                  onClick={() => relay.retry()}
+                >
+                  Try again
+                </Button>
+              }
+            />
+          </div>
         ) : (
           <div
             className={styles.empty}
+            role={opening ? "status" : undefined}
             data-buzz-launch-pending={
               resolving && !navigation?.signal.aborted ? "required" : undefined
             }
           >
             {resolving
               ? "Checking conversation access…"
-              : "Select a channel to read it."}
+              : opening
+                ? "Opening your channels…"
+                : "Select a channel to read it."}
           </div>
         )}
         {current && channelNotice && (

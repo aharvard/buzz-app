@@ -410,6 +410,8 @@ export function createChannelStore(
         old.hidden === channel.hidden &&
         old.private === channel.private &&
         old.autoJoin === channel.autoJoin &&
+        old.landing === channel.landing &&
+        old.welcome === channel.welcome &&
         old.channelType === channel.channelType &&
         old.parentChannelId === channel.parentChannelId &&
         old.huddle === channel.huddle &&

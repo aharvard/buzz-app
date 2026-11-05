@@ -57,11 +57,14 @@ admitted destination through the same read and call. `Welcome` is also the
 second caller of the invite intent (`invite-intent.ts`) beside OS deep links:
 an address typed on the welcome screen that the restore did not admit opens
 this dialog, prefilled, as the app opens. The relay adds a member newly admitted
-by an invite claim to the community's starter channels, so they are already in
-the sidebar and Messages opens the first of them. An open community needs no
+by an invite claim to the community's [welcome channel](#welcome-channel) and
+starter channels, so they are already in the sidebar. Messages opens the welcome
+channel, or else the first starter channel. An open community needs no
 claim: there the relay adds each person, though not agents, to the starter
-channels they have never been in each time they connect, so those channels
-appear a moment later. See [local-first launch](channels.md#local-first-launch).
+channels they have never been in each time they connect, and to the welcome
+channel when they first connect. Those channels appear a moment later, while
+Messages shows that it is opening the person's channels. See
+[local-first launch](channels.md#local-first-launch).
 
 
 
@@ -135,6 +138,32 @@ Messages shows an intentional
 empty state there. Try drafting in A, switching to B, then returning to A.
 Selected channels, drafts and reading offsets are partitioned by the canonical
 community origin and viewer; channel IDs alone are not sufficient keys.
+
+## Welcome channel
+
+A relay that advertises the `buzz-landing-channel` NIP-11 extension keeps one
+welcome channel per community. The relay adds each newly entering human to it
+first, ahead of the starter channels. Messages opens it when there is no saved
+selection, and its timeline starts with a welcome card (see
+[local-first launch](channels.md#local-first-launch)).
+
+Owners and admins set it under **Community admin → Welcome**. The card appears
+only when the relay advertises the extension and the relay-signed roster gives
+the viewer an owner or admin role. A failed support read hides the card. Each
+time the card opens, it reads the current designation from a fresh NIP-11
+document, then reads that channel's message with a strong metadata read. If
+nothing is designated yet, the channel field starts empty and must be chosen
+before Save. The picker lists public, unarchived stream channels. The message
+editor starts with the custom text or the default, and checks the relay's rules
+as the admin types: 1–1,000 characters, and no control characters other than
+line breaks. Line endings are normalized and the message is trimmed before
+sending. A message matching the default is saved as the default rather than as
+custom text. **Restore default message** changes only the draft. A preview shows
+the card as members will see it. Save sends the whole state and confirms it as
+described in [channel lifecycle](channels.md#channel-lifecycle). A relay refusal is shown with
+its reason and the draft is kept. Archive, Delete, Make private and expiry are
+not disabled for the welcome channel yet; the relay refuses them, and that
+refusal is shown like any other lifecycle error.
 
 ## Import from the previous desktop app
 

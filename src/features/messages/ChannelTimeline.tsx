@@ -32,6 +32,7 @@ import {
   useSyncExternalStore,
   Fragment,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import { Virtualizer, type VirtualizerHandle } from "virtua";
 import { MessageRow, type MessageLinkOrigin } from "./MessageRow";
@@ -184,6 +185,9 @@ export type ChannelTimelineProps = {
   chatPresentation?: boolean | undefined;
   /** False: rows open existing threads but offer none to start; see MessageRow. */
   startsThreads?: boolean | undefined;
+  /** Shown above the first message once all history is loaded; it is not a
+   * message and replaces the empty-conversation notice. */
+  start?: ReactNode;
   onOpenLink(url: string, origin?: MessageLinkOrigin): boolean;
   canOpenLink?: ((target: string) => boolean) | undefined;
   revealMessageId?: string | undefined;
@@ -244,6 +248,7 @@ function Timeline({
   onOpenMediaReview,
   chatPresentation = false,
   startsThreads = true,
+  start,
 }: ChannelTimelineProps) {
   useMessageSelectionCopy();
   const [initialPosition] = useState(() =>
@@ -737,6 +742,12 @@ function Timeline({
       window.error)
   )
     setReserveHistorySpace(true);
+  // The measured edge carries the start content, so Virtua offsets rows below it.
+  const atStart =
+    !!start &&
+    window.status === "ready" &&
+    !window.hasMore &&
+    !window.historyLimited;
   const handle = useRef<VirtualizerHandle>(null);
   const [size, setSize] = useState({ width: 0, height: 0, edgeHeight: 0 });
   const width = size.width;
@@ -1803,8 +1814,10 @@ function Timeline({
         ref={edge}
         className={styles.edge}
         data-history-space={reserveHistorySpace || undefined}
+        data-start={atStart || undefined}
       >
         {window.error && <span role="alert">{window.error}</span>}
+        {atStart && start}
         {window.historyLimited ? (
           <span>History window limit reached</span>
         ) : window.hasMore && (historyControl === "button" || window.error) ? (
@@ -2043,6 +2056,7 @@ function Timeline({
         <div className={styles.timelineEnd} aria-hidden="true" />
       </div>
       {!rows.length &&
+        !atStart &&
         !window.hasMore &&
         window.status === "ready" &&
         !window.error &&

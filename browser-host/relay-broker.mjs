@@ -26,6 +26,7 @@ import {
 } from "../src/features/repos/git.ts";
 import { validateMemberAdministrationTemplate } from "../src/features/channel-members/administration-protocol.ts";
 import { validateLifecycleTemplate } from "../src/features/relay/channel-lifecycle-protocol.ts";
+import { landingInfo } from "../src/features/relay/landing.ts";
 import { validateDetailsTemplate } from "../src/features/relay/channel-details-protocol.ts";
 import { validateArchiveRequestTemplate } from "../src/features/relay/identity-archive-protocol.ts";
 import {
@@ -1228,6 +1229,7 @@ export function relayBrokerPlugin({
               name: info.name,
               icon: info.icon,
               policy: policy ?? null,
+              ...landingInfo(info),
               ...(gifSearchPath
                 ? {
                     supported_extensions: ["buzz-gif"],

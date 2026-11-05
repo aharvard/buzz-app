@@ -20,6 +20,7 @@ import {
   ChannelLifecycleUnconfirmed,
 } from "./channel-lifecycle";
 import {
+  landingTemplate,
   lifecycleSettings,
   lifecycleTemplate,
   validateLifecycleTemplate,
@@ -2200,6 +2201,267 @@ describe("auto-join switch", () => {
       vi.useRealTimers();
       h.owner.dispose();
     }
+  });
+});
+
+describe("welcome channel", () => {
+  // The viewer is a relay owner/admin but need not belong to the channel.
+  function welcomeStream(tags: string[][] = [["public"]], type = "stream") {
+    const h = harness("member", type);
+    const metadata = (landing: string[][] = []) =>
+      h.record(39000, [
+        ["d", id],
+        ["t", type],
+        ["name", "Lobby"],
+        ...tags,
+        ...landing,
+      ]);
+    h.setEvents([metadata(), ...h.getEvents().slice(1)]);
+    h.deny();
+    h.publish.mockImplementation(async (event: RelayEvent) => {
+      if (event.kind !== 9002) return;
+      const text = event.tags.find(([key]) => key === "welcome")?.[1];
+      h.setEvents([
+        metadata([["landing"], ...(text ? [["welcome", text]] : [])]),
+        ...h.getEvents().filter((event) => event.kind !== 39000),
+      ]);
+    });
+    return { ...h, metadata };
+  }
+
+  it("sends the full-state command and confirms the strong readback", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    const h = welcomeStream();
+    try {
+      await h.owner.capability.setLanding(id, "Say hi\nhere");
+      expect(h.sign.mock.calls[0]?.[0]).toEqual(
+        landingTemplate(id, "Say hi\nhere"),
+      );
+      expect(h.sign.mock.calls[0]?.[0]?.tags).toEqual([
+        ["h", id],
+        ["landing", "true"],
+        ["welcome", "Say hi\nhere"],
+      ]);
+      expect(h.publish).toHaveBeenCalledOnce();
+      // Only signed metadata is read, and the confirmation is strong.
+      for (const [filters] of h.read.mock.calls)
+        expect(filters.map((filter) => filter.kinds)).toEqual([[39000]]);
+      expect(h.read.mock.lastCall?.[0]?.[0]).toMatchObject({
+        consistency: "strong",
+        "#d": [id],
+      });
+      // A channel the viewer cannot take part in stays out of discovery.
+      expect(h.acceptDiscovery).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+      h.owner.dispose();
+    }
+  });
+
+  it("restores the default with an empty message and confirms its absence", async () => {
+    const h = welcomeStream();
+    h.setEvents([
+      h.metadata([["landing"], ["welcome", "Old"]]),
+      ...h.getEvents().slice(1),
+    ]);
+    try {
+      await h.owner.capability.setLanding(id, "");
+      expect(h.sign.mock.calls[0]?.[0]?.tags[2]).toEqual(["welcome", ""]);
+      await expect(h.owner.capability.readLanding(id)).resolves.toEqual({
+        landing: true,
+        name: "Lobby",
+      });
+    } finally {
+      h.owner.dispose();
+    }
+  });
+
+  it("reads the current message, ignoring one without the designation", async () => {
+    const h = welcomeStream();
+    try {
+      h.setEvents([h.metadata([["landing"], ["welcome", "Hi"]])]);
+      await expect(h.owner.capability.readLanding(id)).resolves.toEqual({
+        landing: true,
+        welcome: "Hi",
+        name: "Lobby",
+      });
+      h.setEvents([h.metadata([["welcome", "Stale"]])]);
+      await expect(h.owner.capability.readLanding(id)).resolves.toEqual({
+        name: "Lobby",
+      });
+      h.setEvents([]);
+      await expect(h.owner.capability.readLanding(id)).resolves.toBeUndefined();
+      expect(h.read.mock.lastCall?.[0]?.[0]).toMatchObject({
+        consistency: "strong",
+      });
+    } finally {
+      h.owner.dispose();
+    }
+  });
+
+  it("accepts the confirmed metadata into discovery for a channel the viewer is in", async () => {
+    const h = harness("member");
+    h.publish.mockImplementation(async () => {
+      h.setEvents([
+        h.record(39000, [
+          ["d", id],
+          ["t", "stream"],
+          ["public"],
+          ["landing"],
+        ]),
+        ...h.getEvents().slice(1),
+      ]);
+    });
+    h.setEvents([
+      h.record(39000, [
+        ["d", id],
+        ["t", "stream"],
+        ["public"],
+      ]),
+      ...h.getEvents().slice(1),
+    ]);
+    try {
+      await h.owner.capability.setLanding(id, "");
+      expect(h.acceptDiscovery).toHaveBeenCalledOnce();
+    } finally {
+      h.owner.dispose();
+    }
+  });
+
+  it.each([
+    [[["public"], ["private"]], "stream"],
+    [[], "stream"],
+    [[["public"], ["archived", "true"]], "stream"],
+    [[["public"], ["ttl", "86400"]], "stream"],
+    [[["public"]], "forum"],
+  ])(
+    "refuses metadata %j on a %s channel before signing",
+    async (tags, type) => {
+      const h = welcomeStream(tags, type);
+      try {
+        await expect(h.owner.capability.setLanding(id, "")).rejects.toThrow(
+          "Only active public channels that don’t expire can welcome new members.",
+        );
+        expect(h.sign).not.toHaveBeenCalled();
+      } finally {
+        h.owner.dispose();
+      }
+    },
+  );
+
+  it.each([" ", "a".repeat(1001), "tab\there"])(
+    "refuses an invalid message %j before reading or signing",
+    async (text) => {
+      const h = welcomeStream();
+      try {
+        await expect(h.owner.capability.setLanding(id, text)).rejects.toThrow();
+        expect(h.read).not.toHaveBeenCalled();
+        expect(h.sign).not.toHaveBeenCalled();
+      } finally {
+        h.owner.dispose();
+      }
+    },
+  );
+
+  it("surfaces the relay's refusal and keeps an unconfirmed move uncertain", async () => {
+    const h = welcomeStream();
+    try {
+      h.publish.mockRejectedValueOnce(
+        new PublishRejected(
+          "rejected",
+          "invalid: landing requires an open, unarchived channel without a ttl",
+        ),
+      );
+      await expect(h.owner.capability.setLanding(id, "")).rejects.toMatchObject(
+        {
+          reason:
+            "invalid: landing requires an open, unarchived channel without a ttl",
+        },
+      );
+      // An acknowledged write whose readback never shows the designation.
+      h.publish.mockImplementationOnce(async () => {});
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const pending = expect(
+        h.owner.capability.setLanding(id, ""),
+      ).rejects.toBeInstanceOf(ChannelLifecycleUnconfirmed);
+      await vi.advanceTimersByTimeAsync(2500);
+      await pending;
+      // A readback whose message differs is not a confirmation either.
+      h.publish.mockImplementationOnce(async () => {
+        h.setEvents([h.metadata([["landing"], ["welcome", "Other"]])]);
+      });
+      const differing = expect(
+        h.owner.capability.setLanding(id, "Mine"),
+      ).rejects.toBeInstanceOf(ChannelLifecycleUnconfirmed);
+      await vi.advanceTimersByTimeAsync(2500);
+      await differing;
+    } finally {
+      vi.useRealTimers();
+      h.owner.dispose();
+    }
+  });
+
+  it("publishes nothing once the caller's guard turns false", async () => {
+    const h = welcomeStream();
+    try {
+      await expect(
+        h.owner.capability.setLanding(id, "", undefined, () => false),
+      ).rejects.toMatchObject({ name: "AbortError" });
+      expect(h.publish).not.toHaveBeenCalled();
+    } finally {
+      h.owner.dispose();
+    }
+  });
+
+  it("admits only the exact landing command", () => {
+    const base = { kind: 9002, content: "", created_at: 1 };
+    expect(() =>
+      validateLifecycleTemplate({
+        ...base,
+        tags: [
+          ["h", id],
+          ["landing", "true"],
+          ["welcome", ""],
+        ],
+      }),
+    ).not.toThrow();
+    for (const tags of [
+      [
+        ["h", id],
+        ["landing", "false"],
+        ["welcome", ""],
+      ],
+      [
+        ["h", id],
+        ["welcome", ""],
+        ["landing", "true"],
+      ],
+      [
+        ["h", id],
+        ["landing", "true"],
+        ["welcome", " "],
+      ],
+      [
+        ["h", id],
+        ["landing", "true"],
+        ["welcome", "a\tb"],
+      ],
+      [
+        ["h", id],
+        ["landing", "true"],
+        ["welcome", "", "extra"],
+      ],
+      [
+        ["h", id],
+        ["landing", "true"],
+      ],
+      [
+        ["h", id],
+        ["landing", "true"],
+        ["name", "x"],
+      ],
+    ])
+      expect(() => validateLifecycleTemplate({ ...base, tags })).toThrow();
   });
 });
 

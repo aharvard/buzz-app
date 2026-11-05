@@ -49,6 +49,10 @@ export type ChannelSummary = Readonly<{
   private?: true;
   /** Relay-advertised default: the relay joins new community members here. */
   autoJoin?: true;
+  /** Relay-signed welcome channel: new members join and open it first. */
+  landing?: true;
+  /** Custom welcome message; only present on the welcome channel. */
+  welcome?: string;
   /** Presentation-only parent from signed channel metadata; never grants access. */
   parentChannelId?: string | undefined;
   /** Marked Huddle room; presented through its parent conversation, not the sidebar. */

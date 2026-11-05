@@ -120,6 +120,31 @@ describe("channel store", () => {
     expect(queries.list().channels[0]?.autoJoin).toBe(true);
     store.dispose();
   });
+  it("replaces a channel summary when only its welcome state changes", async () => {
+    const { store, queries, next } = setup();
+    queries.ensureList();
+    next().respond([
+      roster(relay, "work", [viewer.pubkey]),
+      metadata(relay, "work", "Work", 1_700_000_000, [["landing"]]),
+    ]);
+    await flush();
+    const landing = queries.list().channels[0];
+    expect(landing).toMatchObject({ landing: true });
+    expect(landing?.welcome).toBeUndefined();
+
+    queries.refreshList?.();
+    next().respond([
+      roster(relay, "work", [viewer.pubkey]),
+      metadata(relay, "work", "Work", 1_700_000_001, [
+        ["landing"],
+        ["welcome", "Hello"],
+      ]),
+    ]);
+    await flush();
+    expect(queries.list().channels[0]).not.toBe(landing);
+    expect(queries.list().channels[0]?.welcome).toBe("Hello");
+    store.dispose();
+  });
   it("preserves summary identity on preview refreshes and detects same-length DM roster changes", () => {
     const wire = scriptedTransport(viewer.pubkey, relay.pubkey);
     let live!: LiveCallbacks;

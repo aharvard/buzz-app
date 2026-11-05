@@ -1,0 +1,17 @@
+.card {
+  background: var(--surface-inset);
+  border-radius: var(--radius-container);
+  padding: var(--space-4) var(--space-5);
+  color: var(--text-standard);
+  text-align: start;
+}
+.title {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.body {
+  margin: var(--space-1) 0 0;
+  /* Plain text: line breaks are the only formatting. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

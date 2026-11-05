@@ -21,7 +21,10 @@ import type {
 } from "../../features/panels/service";
 import type { PageNavigation } from "../../features/navigation/service";
 import type { OpenTarget } from "../../features/navigation/targets";
-import { soloDraftTarget } from "../../features/channel-navigation/routes";
+import {
+  conversationTarget,
+  soloDraftTarget,
+} from "../../features/channel-navigation/routes";
 import {
   createRelaySession,
   type RelaySession,
@@ -414,6 +417,119 @@ it("opens the community's auto-join channel first when nothing is saved", async 
     authority,
   );
   await screen.findByRole("textbox", { name: "Message #Beta" });
+});
+
+it("opens the community's welcome channel before its auto-join channel and starts it with the welcome", async () => {
+  const viewer = keypair(),
+    authority = keypair();
+  workspace(
+    [
+      roster(authority, "alpha", [viewer.pubkey]),
+      metadata(authority, "alpha", "Alpha", undefined, [
+        ["t", "stream"],
+        ["auto_join"],
+      ]),
+      roster(authority, "beta", [viewer.pubkey]),
+      metadata(authority, "beta", "Beta", undefined, [
+        ["t", "stream"],
+        ["landing"],
+        ["welcome", "Say hi\nand introduce yourself."],
+      ]),
+    ],
+    viewer,
+    authority,
+  );
+  await screen.findByRole("textbox", { name: "Message #Beta" });
+  const welcome = await screen.findByRole("region", { name: "Welcome" });
+  expect(welcome).toHaveTextContent("Say hi and introduce yourself.");
+  // The welcome is not a message and replaces the empty-conversation notice.
+  expect(welcome.closest("[data-message-id]")).toBeNull();
+  expect(screen.queryByText("No messages yet.")).toBeNull();
+});
+
+it("shows the default welcome only in the welcome channel", async () => {
+  const viewer = keypair(),
+    authority = keypair();
+  const { visit, scope } = workspace(
+    [
+      roster(authority, "alpha", [viewer.pubkey]),
+      metadata(authority, "alpha", "Alpha", undefined, [
+        ["t", "stream"],
+        // A stale message without the designation is ignored.
+        ["welcome", "Old"],
+      ]),
+      roster(authority, "beta", [viewer.pubkey]),
+      metadata(authority, "beta", "Beta", undefined, [
+        ["t", "stream"],
+        ["landing"],
+      ]),
+    ],
+    viewer,
+    authority,
+  );
+  expect(
+    await screen.findByRole("region", { name: "Welcome" }),
+  ).toHaveTextContent("This is a place to connect with the community");
+  visit(conversationTarget(scope, "alpha"));
+  await screen.findByRole("textbox", { name: "Message #Alpha" });
+  expect(screen.queryByRole("region", { name: "Welcome" })).toBeNull();
+  expect(screen.queryByText("Old")).toBeNull();
+});
+
+it("keeps a saved selection over the welcome channel", async () => {
+  const viewer = keypair(),
+    authority = keypair();
+  writeView(`https://relay.test:${viewer.pubkey}`, "selected-channel", "alpha");
+  workspace(
+    [
+      roster(authority, "alpha", [viewer.pubkey]),
+      metadata(authority, "alpha", "Alpha", undefined, [["t", "stream"]]),
+      roster(authority, "beta", [viewer.pubkey]),
+      metadata(authority, "beta", "Beta", undefined, [
+        ["t", "stream"],
+        ["landing"],
+      ]),
+    ],
+    viewer,
+    authority,
+  );
+  await screen.findByRole("textbox", { name: "Message #Alpha" });
+  expect(screen.queryByRole("region", { name: "Welcome" })).toBeNull();
+});
+
+it("falls back when the viewer is not in the welcome channel", async () => {
+  const viewer = keypair(),
+    authority = keypair(),
+    other = keypair();
+  workspace(
+    [
+      roster(authority, "alpha", [viewer.pubkey]),
+      metadata(authority, "alpha", "Alpha", undefined, [["t", "stream"]]),
+      roster(authority, "beta", [other.pubkey]),
+      metadata(authority, "beta", "Beta", undefined, [
+        ["t", "stream"],
+        ["public"],
+        ["landing"],
+      ]),
+    ],
+    viewer,
+    authority,
+  );
+  await screen.findByRole("textbox", { name: "Message #Alpha" });
+});
+
+it("offers a reconnect instead of a blank view when the viewer has no channels", async () => {
+  const { owner } = workspace([]);
+  await vi.waitFor(() =>
+    expect(owner.session.channels.list().status).toBe("ready"),
+  );
+  expect(
+    await screen.findByRole("heading", {
+      name: "You’re not in any channels yet",
+    }),
+  ).toBeVisible();
+  expect(screen.queryByText("Select a channel to read it.")).toBeNull();
+  expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
 });
 
 it("hands the community roster to Channel settings and follows the republished flag", async () => {

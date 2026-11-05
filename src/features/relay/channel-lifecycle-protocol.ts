@@ -1,6 +1,7 @@
 import type { EventTemplate } from "nostr-tools";
 import type { ChannelSummary } from "./contracts.ts";
 import { newer, type RelayEvent } from "./events.ts";
+import { validWelcomeCommand } from "./landing.ts";
 
 export type ChannelLifecycleAction =
   | "archive"
@@ -57,6 +58,36 @@ export function lifecycleTemplate(
   return event;
 }
 
+/**
+ * Makes a channel the community's welcome channel with its full welcome
+ * state. `""` restores the default message; the relay accepts a repeat.
+ */
+export function landingTemplate(channelId: string, welcome: string) {
+  const event = {
+    kind: 9002,
+    created_at: Math.floor(Date.now() / 1000),
+    content: "",
+    tags: [
+      ["h", lifecycleChannelId(channelId)],
+      ["landing", "true"],
+      ["welcome", welcome],
+    ],
+  };
+  validateLifecycleTemplate(event);
+  return event;
+}
+
+function landingCommand(tags: string[][]) {
+  return (
+    tags.length === 3 &&
+    JSON.stringify(tags[1]) === JSON.stringify(["landing", "true"]) &&
+    tags[2]?.length === 2 &&
+    tags[2][0] === "welcome" &&
+    typeof tags[2][1] === "string" &&
+    validWelcomeCommand(tags[2][1])
+  );
+}
+
 /** The host never accepts generic metadata edits or other-member removal. */
 export function validateLifecycleTemplate(event: EventTemplate): void {
   if (
@@ -66,12 +97,20 @@ export function validateLifecycleTemplate(event: EventTemplate): void {
     !Number.isSafeInteger(event.created_at) ||
     event.created_at < 0 ||
     !Array.isArray(event.tags) ||
-    event.tags.length !== (event.kind === 9002 ? 2 : 1) ||
+    !(
+      event.tags.length === (event.kind === 9002 ? 2 : 1) ||
+      (event.kind === 9002 && event.tags.length === 3)
+    ) ||
     event.tags[0]?.length !== 2 ||
     event.tags[0]?.[0] !== "h"
   )
     throw new Error("Invalid channel lifecycle command");
   lifecycleChannelId(event.tags[0]?.[1] ?? "");
+  if (event.kind === 9002 && event.tags.length === 3) {
+    if (!landingCommand(event.tags))
+      throw new Error("Only the welcome channel and message may be set here");
+    return;
+  }
   if (
     event.kind === 9002 &&
     !["archived", "auto_join"].some((name) =>
