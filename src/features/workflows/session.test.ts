@@ -5,6 +5,7 @@ import { bytesToHex } from "nostr-tools/utils";
 import { createRelaySession } from "../relay/session";
 import { eventDto, type RelayEvent } from "../relay/events";
 import type { LiveCallbacks } from "../relay/live";
+import { PublishRejected } from "../relay/outbox";
 import {
   flush,
   keypair,
@@ -505,6 +506,58 @@ it("existing backend permits workflow commands without lifecycle metadata while 
   );
   expect(sign).toHaveBeenCalledTimes(1);
   expect(publish).toHaveBeenCalledTimes(1);
+});
+
+it("a relay refusal reaches the session's run operation; the journal keeps fixed copy", async () => {
+  const wire = scriptedTransport(viewer.pubkey, relay.pubkey);
+  let incoming!: (events: readonly RelayEvent[]) => void;
+  let saved = "";
+  const publish = vi.fn(async () => {
+    throw new PublishRejected(
+      "Workflow is disabled or inactive",
+      "forbidden: workflow is disabled or inactive",
+    );
+  });
+  const owner = createRelaySession(
+    {
+      ...wire.transport,
+      writer: {
+        kinds: [46020],
+        sign: async (template) => signed(viewer, template),
+        publish,
+      },
+      workflows: { runs: async () => ({ runs: [], next: null }) },
+      subscribe(callbacks) {
+        incoming = callbacks.receive;
+        return { update() {}, retry() {}, dispose() {} };
+      },
+    },
+    {
+      outboxStorage: {
+        load: async () => [],
+        save: async (rows) => {
+          saved = JSON.stringify(rows);
+        },
+      },
+    },
+  );
+  owners.push(owner);
+  incoming([roster(relay, channelId, [viewer.pubkey], 1)]);
+  const operation = owner.session.workflows.trigger({
+    ...reference,
+    yaml: definition.content,
+    revision: definition.id,
+    createdAt: 10,
+  });
+  await vi.waitFor(() =>
+    expect(owner.session.workflows.operations.snapshot()[0]).toMatchObject({
+      eventId: operation,
+      outcome: "rejected",
+      error: "Workflow is disabled or inactive",
+    }),
+  );
+  await vi.waitFor(() => expect(saved).toContain("Workflow command rejected"));
+  expect(saved).not.toContain("disabled or inactive");
 });
 
 it("session fresh definition read resolves a lost save, while ordinary echo does not", async () => {
