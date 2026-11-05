@@ -89,3 +89,33 @@ test("a long goose model name stays inside its Settings row", async ({
   }
   expect(errors.unexplained()).toEqual([]);
 });
+
+// Layout: Create agent nests the picker one level deeper, so its Model title
+// must still keep its word instead of wrapping one letter per line.
+test("a long goose model name leaves Create agent's Model title whole", async ({
+  page,
+}) => {
+  const errors = watchPageErrors(page);
+  await page.goto(`${url}?width=520&surface=create`);
+  const model = page.getByRole("button", {
+    name: /^Goose model: Claude Sonnet 5\.5 Extended Context Thinking Preview 2026\.10/,
+  });
+  await expect(model).toBeEnabled();
+  const geometry = await model.evaluate((button) => {
+    const rowElement = button.closest(".buzz-preference-row");
+    const row = rowElement.getBoundingClientRect();
+    const title = rowElement.querySelector(".buzz-preference-row-label");
+    const box = button.getBoundingClientRect();
+    const value = button.querySelector(".buzz-select-value");
+    return {
+      inside: box.left >= row.left - 0.5 && box.right <= row.right + 0.5,
+      truncated: value.scrollWidth > value.clientWidth,
+      titleLines: Math.round(
+        title.getBoundingClientRect().height /
+          Number.parseFloat(getComputedStyle(title).lineHeight),
+      ),
+    };
+  });
+  expect(geometry).toEqual({ inside: true, truncated: true, titleLines: 1 });
+  expect(errors.unexplained()).toEqual([]);
+});

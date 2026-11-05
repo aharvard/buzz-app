@@ -10,6 +10,7 @@ import {
 import { GooseSetup } from "../../src/bundled/goose/setup";
 import { createTabs } from "../../src/bundled/goose/tabs";
 import { GooseHistory } from "../../src/bundled/goose/transcript";
+import { PreferenceRow } from "../../src/shared/design-system/ui/PreferenceRow";
 import "../../src/shared/styles/globals.css";
 
 const LONG =
@@ -29,30 +30,45 @@ const fake = fakeSpawn({
   saved: new Map([["databricks", new Set(["DATABRICKS_HOST"])]]),
   supported: [LONG],
 });
-const { SettingsTab } = createTabs({
+const { SettingsTab, CreateModel } = createTabs({
   setup: new GooseSetup(fake),
   runtime: {} as GooseRuntime,
   history: new GooseHistory(undefined),
 });
-const width = Number(new URLSearchParams(location.search).get("width"));
+const params = new URLSearchParams(location.search);
+const width = Number(params.get("width"));
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing fixture root");
 
 createRoot(root).render(
   <div style={{ width }}>
-    <SettingsTab
-      agent={
-        {
-          pubkey: "c".repeat(64),
-          name: "Gander",
-          type: "buzz.goose/goose",
-          owner: "a".repeat(64),
-          config: DEFAULT_CONFIG,
-        } as Agent<Config>
-      }
-      save={async () => undefined}
-      settingsSection="identity"
-    />
+    {params.get("surface") === "create" ? (
+      // Create agent's Model row, which nests the picker in its recovery.
+      <PreferenceRow
+        title="Model"
+        trailing={
+          <CreateModel
+            config={DEFAULT_CONFIG}
+            disabled={false}
+            onChange={() => undefined}
+          />
+        }
+      />
+    ) : (
+      <SettingsTab
+        agent={
+          {
+            pubkey: "c".repeat(64),
+            name: "Gander",
+            type: "buzz.goose/goose",
+            owner: "a".repeat(64),
+            config: DEFAULT_CONFIG,
+          } as Agent<Config>
+        }
+        save={async () => undefined}
+        settingsSection="identity"
+      />
+    )}
   </div>,
 );
