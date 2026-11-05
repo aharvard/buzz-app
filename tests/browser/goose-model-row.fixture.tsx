@@ -13,8 +13,11 @@ import { GooseHistory } from "../../src/bundled/goose/transcript";
 import { PreferenceRow } from "../../src/shared/design-system/ui/PreferenceRow";
 import "../../src/shared/styles/globals.css";
 
+const params = new URLSearchParams(location.search);
 const LONG =
   "databricks-claude-sonnet-5-5-extended-context-thinking-preview-2026-10";
+const SHORT = "databricks-claude-opus-5-5";
+const model = params.get("model") === "short" ? SHORT : LONG;
 const fake = fakeSpawn({
   providers: [
     {
@@ -22,20 +25,23 @@ const fake = fakeSpawn({
       providerName: "Databricks",
       configured: true,
       visibleInSetup: true,
-      defaultModel: LONG,
+      defaultModel: model,
       configKeys: [{ name: "DATABRICKS_HOST", required: true, secret: false }],
     },
   ],
-  defaults: { providerId: "databricks", modelId: LONG },
+  defaults: { providerId: "databricks", modelId: model },
   saved: new Map([["databricks", new Set(["DATABRICKS_HOST"])]]),
-  supported: [LONG],
+  supported: [model],
+  // Create agent shows a thinking level beside the model when it lists one.
+  ...(params.has("thinking") && {
+    thinking: { [model]: { current: "", levels: ["low", "medium", "high"] } },
+  }),
 });
 const { SettingsTab, CreateModel } = createTabs({
   setup: new GooseSetup(fake),
   runtime: {} as GooseRuntime,
   history: new GooseHistory(undefined),
 });
-const params = new URLSearchParams(location.search);
 const width = Number(params.get("width"));
 
 const root = document.getElementById("root");
