@@ -633,17 +633,21 @@ export function createTabs({
     disabled?: boolean;
     onChange(effort: string): void;
   }>) {
-    const [efforts] = useRead(
+    const [efforts, retry] = useRead(
       () => setup.efforts(choice),
       `${choice.provider}\u0000${choice.model.trim()}:${revision}`,
     );
+    const failed =
+      efforts.status === "error"
+        ? `Could not read goose's levels: ${efforts.error}`
+        : undefined;
     const levels = efforts.value?.levels ?? [];
     const named = (level: string) =>
       level.charAt(0).toUpperCase() + level.slice(1);
     const fallback = efforts.value?.current
       ? named(efforts.value.current)
       : "Automatic";
-    return (
+    const select = (
       <Select
         label="Thinking"
         variant={compact ? "compact" : "preference"}
@@ -656,9 +660,7 @@ export function createTabs({
             }
           : {})}
         disabled={disabled}
-        {...(efforts.status === "error"
-          ? { description: `Could not read goose's levels: ${efforts.error}` }
-          : {})}
+        {...(failed && !compact ? { description: failed } : {})}
         groups={[
           {
             label: "",
@@ -685,6 +687,20 @@ export function createTabs({
         ]}
         onValueChange={onChange}
       />
+    );
+    // A compact choice shows no description, so a failed read says so beside
+    // it and offers another try, as the model field does.
+    return compact ? (
+      <ModelDiscoveryRecovery
+        error={failed}
+        loading={efforts.status === "loading"}
+        retry={retry}
+        disabled={disabled}
+      >
+        {select}
+      </ModelDiscoveryRecovery>
+    ) : (
+      select
     );
   }
 
