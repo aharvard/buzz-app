@@ -547,6 +547,45 @@ it("says when Create agent's Thinking cannot read goose's levels, and tries agai
   ).not.toBeInTheDocument();
 });
 
+it("reads Create agent's Thinking levels again when a setup check recovers", async () => {
+  let fail = true;
+  const fake = fakeSpawn({
+    providers: PROVIDERS,
+    defaults: { providerId: "databricks", modelId: "goose-claude" },
+    thinking: { "": { current: "medium", levels: ["low", "medium"] } },
+  });
+  const setup = new GooseSetup(fake);
+  const efforts = setup.efforts.bind(setup);
+  const reads = vi
+    .spyOn(setup, "efforts")
+    .mockImplementation((choice) =>
+      fail ? Promise.reject(new Error("goose is busy")) : efforts(choice),
+    );
+  const { CreateThinking } = createTabs({ setup, ...unused });
+  if (!CreateThinking) throw new Error("no Thinking field");
+  render(
+    <CreateThinking
+      config={DEFAULT_CONFIG}
+      disabled={false}
+      onChange={() => undefined}
+    />,
+  );
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Could not read goose's levels: goose is busy",
+  );
+  const failedReads = reads.mock.calls.length;
+  fail = false;
+  // As the model field's Try again does.
+  await act(() => setup.check());
+  await waitFor(() =>
+    expect(
+      screen.getByRole("combobox", { name: "Thinking" }),
+    ).toHaveTextContent("Medium · Default"),
+  );
+  expect(reads.mock.calls.length).toBeGreaterThan(failedReads);
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
 it("splits Settings as the profile does: choices under Identity, the rest apart", async () => {
   const fake = fakeSpawn({
     providers: PROVIDERS,

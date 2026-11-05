@@ -1331,9 +1331,21 @@ export function createTabs({
     disabled,
   }: AgentCreateProps<Config>) {
     const current = readConfig(config);
+    // A setup check, such as the model field's Try again, clears goose's
+    // levels; read them again once it settles.
+    const checking =
+      useSyncExternalStore(setup.subscribe, setup.snapshot).readiness ===
+      "checking";
+    const wasChecking = useRef(checking);
+    const [checks, setChecks] = useState(0);
+    useEffect(() => {
+      if (wasChecking.current && !checking) setChecks((count) => count + 1);
+      wasChecking.current = checking;
+    }, [checking]);
     return (
       <ThinkingField
         compact
+        revision={checks}
         choice={current}
         value={current.effort}
         disabled={disabled}
