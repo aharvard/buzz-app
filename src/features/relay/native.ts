@@ -545,13 +545,16 @@ export async function connectNativeTransport(
         return (await writer.publish(event, signal)) ?? "";
       },
     },
-    async openDirectMessage(pubkeys, signal, into) {
+    async openDirectMessage(pubkeys, signal, history) {
       signal.throwIfAborted();
       const id = await invoke<string>("relay_direct_message", {
         community: origin,
         pubkeys,
-        ...(into
-          ? { channel: into.channelId, includeHistory: into.includeHistory }
+        ...(history
+          ? {
+              channel: history.channelId,
+              includeHistory: history.includeHistory,
+            }
           : {}),
       });
       signal.throwIfAborted();

@@ -20,6 +20,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { useEffect } from "react";
 import type { LiveCallbacks } from "../../features/relay/live";
+import type { DirectMessageHistory } from "../../features/relay/transport";
 import { createRelaySession } from "../../features/relay/session";
 import {
   keypair,
@@ -150,10 +151,11 @@ async function setup(
     async (
       pubkeys: readonly string[],
       _signal: AbortSignal,
-      into?: { channelId: string; includeHistory: boolean },
+      into?: DirectMessageHistory,
     ) => {
       if (failure) throw new Error(failure);
-      if (into?.includeHistory || pubkeys.includes(agent.pubkey)) {
+      // As the relay: only the history tag joins this DM in place.
+      if (into?.includeHistory) {
         members.push(...pubkeys);
         clock++;
         return id;
