@@ -720,7 +720,14 @@ export function createPullStates(gh: GitHubCli | undefined): PullStates {
   /** Tells whoever watches `urls` that their states were recorded. */
   const notify = (urls: readonly string[]) => {
     for (const url of urls)
-      for (const listener of listeners.get(url) ?? []) listener.notify();
+      for (const listener of listeners.get(url) ?? [])
+        // One reader that throws neither fails the read nor keeps it from
+        // the rest.
+        try {
+          listener.notify();
+        } catch (error) {
+          console.warn("A pull request reader failed", error);
+        }
   };
   const watchedAt = (url: string, level: PullLevel) =>
     [...(listeners.get(url) ?? [])].some(
