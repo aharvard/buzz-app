@@ -621,11 +621,16 @@ export function createTabs({
     revision = 0,
     choice,
     value,
+    compact = false,
+    disabled = false,
     onChange,
   }: Readonly<{
     choice: Choice;
     revision?: number;
     value: string;
+    /** A trailing choice in a host's row, as Create agent places it. */
+    compact?: boolean;
+    disabled?: boolean;
     onChange(effort: string): void;
   }>) {
     const [efforts] = useRead(
@@ -641,9 +646,16 @@ export function createTabs({
     return (
       <Select
         label="Thinking"
-        variant="preference"
+        variant={compact ? "compact" : "preference"}
+        {...(compact && { align: "end" as const })}
         value={value}
-        {...(!value ? { valueLabel: fallback } : {})}
+        {...(!value
+          ? {
+              valueLabel: fallback,
+              ...(compact && { valueSuffix: " · Default" }),
+            }
+          : {})}
+        disabled={disabled}
         {...(efforts.status === "error"
           ? { description: `Could not read goose's levels: ${efforts.error}` }
           : {})}
@@ -1296,6 +1308,24 @@ export function createTabs({
     );
   }
 
+  /** Create agent's Thinking row: goose's levels for the chosen model. */
+  function CreateThinking({
+    config,
+    onChange,
+    disabled,
+  }: AgentCreateProps<Config>) {
+    const current = readConfig(config);
+    return (
+      <ThinkingField
+        compact
+        choice={current}
+        value={current.effort}
+        disabled={disabled}
+        onChange={(effort) => onChange({ ...current, effort })}
+      />
+    );
+  }
+
   function SettingsTab({
     agent,
     save,
@@ -1412,6 +1442,7 @@ export function createTabs({
     DefaultControl,
     Create,
     CreateModel,
+    CreateThinking,
     SettingsTab,
     ActivityTab,
   };
