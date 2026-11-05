@@ -9,11 +9,13 @@ import {
   renderHook,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { ToastProvider } from "../../shared/design-system/ui/Toast";
 import type { RelayData, RelaySnapshot } from "../relay/service";
 import type { RelaySession } from "../relay/session";
+import { ChannelLifecycleStale } from "../relay/channel-lifecycle";
 import { PanelWorkspace } from "../panels/PanelWorkspace";
 import {
   ChannelNavigationProvider,
@@ -33,9 +35,13 @@ function fixture(
   ) => Promise<void> = async () => {},
 ) {
   let ids = ["existing"];
+  const refreshList = vi.fn();
   const session = () =>
     ({
-      channels: { list: () => ({ channels: ids.map((id) => ({ id })) }) },
+      channels: {
+        list: () => ({ channels: ids.map((id) => ({ id })) }),
+        refreshList,
+      },
       sidebarPreferences: { setMute: async () => [] },
       channelLifecycle: { run },
     }) as unknown as RelaySession;
@@ -58,6 +64,7 @@ function fixture(
   } as RelayData;
   return {
     relay,
+    refreshList,
     roster: (next: string[]) => {
       ids = next;
     },
@@ -361,4 +368,67 @@ it("runs a chat archive's Undo through the lifecycle gate, after any action hold
   await screen.findByRole("dialog", { name: "Chat unarchived: Planning" });
   expect(view.result.current.lifecycleDialog).toBeUndefined();
   expect(run).toHaveBeenCalledTimes(3);
+});
+
+it("offers Refresh channels when a lifecycle action failed on stale state", async () => {
+  const stale = new ChannelLifecycleStale(
+    "This action is no longer permitted. Refresh channels to see what you can do now.",
+  );
+  const h = fixture(async () => {
+    throw stale;
+  });
+  const view = mount(h.relay, true);
+  act(() =>
+    view.result.current.openLifecycle(
+      { id: "channel", name: "Channel" },
+      "archive",
+    ),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Archive channel" }),
+  );
+  const toast = await screen.findByRole("dialog", {
+    name: "Archive channel failed",
+  });
+  expect(toast).toHaveAccessibleDescription(stale.message);
+  const refresh = within(toast).getByRole("button", {
+    name: "Refresh channels",
+  });
+  // The shared card puts its dismiss control first, then the actions.
+  expect(within(toast).getAllByRole("button")).toEqual([
+    within(toast).getByRole("button", { name: "Dismiss notification" }),
+    refresh,
+  ]);
+  fireEvent.click(refresh);
+  expect(h.refreshList).toHaveBeenCalledExactlyOnceWith({
+    consistency: "strong",
+  });
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("dialog", { name: "Archive channel failed" }),
+    ).toBeNull(),
+  );
+});
+
+it("keeps other lifecycle failures' toasts to Dismiss", async () => {
+  const h = fixture(async () => {
+    throw new Error("Archive check unavailable. Try again.");
+  });
+  const view = mount(h.relay, true);
+  act(() =>
+    view.result.current.openLifecycle(
+      { id: "channel", name: "Channel" },
+      "archive",
+    ),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Archive channel" }),
+  );
+  const toast = await screen.findByRole("dialog", {
+    name: "Archive channel failed",
+  });
+  expect(within(toast).getAllByRole("button")).toEqual([
+    within(toast).getByRole("button", { name: "Dismiss notification" }),
+  ]);
+  expect(h.refreshList).not.toHaveBeenCalled();
 });
