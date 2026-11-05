@@ -269,9 +269,10 @@ it("filters the combined sidebar without navigating or resetting Solo sections",
   await user.click(solo);
   expect(screen.getByRole("button", { name: "Inbox" })).toBeVisible();
   expect(screen.queryByRole("heading", { name: "Solo" })).toBeNull();
+  // Without its heading, Solo creates from New beside the tabs.
   expect(
-    screen.getByRole("button", { name: "New chat or workspace" }),
-  ).toBeVisible();
+    screen.queryByRole("button", { name: "New chat or workspace" }),
+  ).toBeNull();
   expect(screen.getByRole("button", { name: "Chats" })).toHaveAttribute(
     "aria-expanded",
     "false",
@@ -773,9 +774,7 @@ it.each(["empty", "chats", "projects", "both"])(
       expect(f.open).toHaveBeenLastCalledWith(soloDraftTarget(scope));
     }
     await user.click(screen.getByRole("tab", { name: "Solo" }));
-    const trigger = within(nav).getByRole("button", {
-      name: "New chat or workspace",
-    });
+    const trigger = screen.getByRole("button", { name: "New" });
     await user.click(trigger);
     await user.click(await screen.findByRole("menuitem", { name: "New chat" }));
     expect(f.open).toHaveBeenLastCalledWith(soloDraftTarget(scope));

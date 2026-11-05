@@ -153,7 +153,6 @@ export function SoloRegions({
       open
       onToggle={() => {}}
       hideTitle
-      headerActions={fallbackHeaderActions}
     >
       {ordinary}
     </SidebarSection>

@@ -220,6 +220,11 @@ test("Solo rows span the Team row width and workspace actions stay in their head
   await page.getByRole("tab", { name: "Solo" }).click();
   await expect(soloRow).toBeVisible();
   await expect.poll(() => paintedEnd(soloRow)).toBe(teamEnd);
+  // Without its heading, Solo leaves creation to New beside the tabs rather
+  // than keeping a hidden control that still takes up a row.
+  await expect(
+    page.getByRole("button", { name: "New chat or workspace" }),
+  ).toHaveCount(0);
 
   await soloRow.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Move to", exact: true }).hover();
