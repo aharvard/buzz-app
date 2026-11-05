@@ -1353,6 +1353,10 @@ export function createRelaySession(
     }, delay);
     timers.add(attendRetry);
   };
+  /** Attendance lookups in order, one at a time: the reader times a read
+   * from when it is queued, so a batch queued behind another background
+   * read would spend its deadline waiting. */
+  let attendLookups = Promise.resolve();
   /** Reads the metadata of attended channels not known. Only into a ready
    * list: a lookup may extend one, never stand in for initial discovery. A
    * channel still unknown after its read, because the read failed or found
@@ -1361,11 +1365,8 @@ export function createRelaySession(
    * have turned public since. So is one that becomes unknown again, as when
    * newer metadata makes it private. */
   const resolveAttended = () => {
-    if (
-      closed ||
-      !channels.queries.resolve ||
-      channels.queries.list().status !== "ready"
-    )
+    const resolve = channels.queries.resolve;
+    if (closed || !resolve || channels.queries.list().status !== "ready")
       return;
     const unknown = [...new Set([...attended].flat())].filter(
       (id) => !channels.queries.get?.(id),
@@ -1383,14 +1384,15 @@ export function createRelaySession(
     }
     for (let start = 0; start < fresh.length; start += 128) {
       const batch = fresh.slice(start, start + 128);
-      void channels.queries
+      const lookUp = () =>
         // In the background lane, so an interactive read never waits behind it.
-        .resolve(batch, { signal: lifetime.signal, priority: "background" })
-        .catch(() => {})
-        .finally(() => {
-          for (const id of batch) attendReading.delete(id);
-          updateInterests();
-        });
+        resolve(batch, { signal: lifetime.signal, priority: "background" })
+          .catch(() => {})
+          .finally(() => {
+            for (const id of batch) attendReading.delete(id);
+            updateInterests();
+          });
+      attendLookups = attendLookups.then(lookUp, lookUp);
     }
   };
   const liveListeners = new Set<() => void>();

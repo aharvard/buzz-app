@@ -175,6 +175,41 @@ it("says a channel is pending until its metadata is read, attended or not yet, a
   await vi.waitFor(() => expect(pending()).toBe(false));
 });
 
+it("gives each batch of attended channels' lookups its own read deadline, so a slow first batch does not time out the next", async () => {
+  const h = harness();
+  const unknown = Array.from(
+    { length: 128 },
+    (_, index) =>
+      `55555555-5555-4555-8555-${index.toString(16).padStart(12, "0")}`,
+  );
+  const live = () => h.update.mock.lastCall?.[0] ?? [];
+  const lookup = (id: string) =>
+    h.wire.pending.find(
+      (entry) => !entry.signal?.aborted && asks(entry.filters, id),
+    );
+  // From the start, so the reader's deadlines run on this clock.
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    h.owner.session.attend([...unknown, OPEN]);
+    await h.discover();
+    await vi.waitFor(() => expect(lookup(unknown[0] ?? "")).toBeDefined());
+    // The first batch takes 6 of the reader's 10 seconds and finds nothing.
+    await vi.advanceTimersByTimeAsync(6_000);
+    const first = lookup(unknown[0] ?? "");
+    assert(first);
+    h.wire.pending.splice(h.wire.pending.indexOf(first), 1);
+    first.respond([]);
+    await vi.advanceTimersByTimeAsync(0);
+    // The next one still has its 10 seconds after 5 more.
+    await vi.advanceTimersByTimeAsync(5_000);
+    lookup(OPEN)?.respond(channel(OPEN, "public") as RelayEvent[]);
+    await vi.advanceTimersByTimeAsync(0);
+  } finally {
+    vi.useRealTimers();
+  }
+  await vi.waitFor(() => expect(live()).toContain(OPEN));
+});
+
 it("resolves the channels a read of every channel finds, of any kinds, once discovery is done", async () => {
   const h = harness();
   const read = () =>
