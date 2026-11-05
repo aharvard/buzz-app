@@ -124,7 +124,13 @@ function WelcomeForm({
   const [error, setError] = useState("");
   // An unconfirmed publication: only a fresh read, never a repeat, settles it.
   const [unconfirmed, setUnconfirmed] = useState(false);
+  const [checking, setChecking] = useState(false);
   const [saved, setSaved] = useState(false);
+  // The check compares the relay's answer with the draft as it stands then.
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const checkButton = useRef<HTMLButtonElement>(null);
+  const messageInput = useRef<HTMLTextAreaElement>(null);
   const mounted = useRef(true);
   const saveController = useRef<AbortController>(undefined);
   useEffect(() => {
@@ -138,7 +144,11 @@ function WelcomeForm({
   // biome-ignore lint/correctness/useExhaustiveDependencies: An explicit retry reruns this finite read.
   useEffect(() => {
     const reading = new AbortController();
-    setLoad({ status: "loading" });
+    // A check keeps the published form in view; only the first read waits.
+    const check = attempt > 0;
+    setLoad((current) =>
+      check && current.status === "ready" ? current : { status: "loading" },
+    );
     void (async () => {
       try {
         const info = await communityRequest<CommunityInfo>(
@@ -162,19 +172,26 @@ function WelcomeForm({
           ...(state?.name ? { name: state.name } : {}),
           welcome: (state?.landing && state.welcome) || "",
         };
-        setLoad({ status: "ready", published });
         // A draft the relay now shows has landed; there is nothing to save.
-        setDraft((current) =>
-          current &&
+        const current = draftRef.current;
+        const landed =
+          !!current &&
           current.channelId === published.channelId &&
-          commandFor(current.text) === published.welcome
-            ? undefined
-            : current,
-        );
+          commandFor(current.text) === published.welcome;
+        setLoad({ status: "ready", published });
+        if (landed) {
+          setDraft(undefined);
+          setSaved(true);
+        }
         setUnconfirmed(false);
+        setChecking(false);
+        // The Check again button leaves with its notice; stay in the form.
+        if (check && document.activeElement === checkButton.current)
+          messageInput.current?.focus({ preventScroll: true });
       } catch (reason) {
-        if (!reading.signal.aborted)
-          setLoad({ status: "error", error: message(reason) });
+        if (reading.signal.aborted) return;
+        setChecking(false);
+        setLoad({ status: "error", error: message(reason) });
       }
     })();
     return () => reading.abort();
@@ -354,6 +371,7 @@ function WelcomeForm({
               error={problem && problems[problem]}
             >
               <Textarea
+                ref={messageInput}
                 rows={4}
                 disabled={disabled}
                 value={text}
@@ -385,9 +403,13 @@ function WelcomeForm({
                 </p>
                 <div>
                   <Button
+                    ref={checkButton}
                     type="button"
-                    disabled={saving}
-                    onClick={() => setAttempt((n) => n + 1)}
+                    loading={checking}
+                    onClick={() => {
+                      setChecking(true);
+                      setAttempt((n) => n + 1);
+                    }}
                   >
                     Check again
                   </Button>

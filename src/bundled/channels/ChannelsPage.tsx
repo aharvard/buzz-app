@@ -325,7 +325,7 @@ function LiveNewMessage(
   return <NewMessage {...props} channels={channels} />;
 }
 
-/** How long an empty first channel list keeps the opening state. */
+/** How long a channel list with nothing to open keeps the opening state. */
 const ENROLLMENT_WAIT_MS = 10_000;
 
 function ChannelWorkspace({
@@ -591,9 +591,10 @@ function ChannelWorkspace({
     list.status === "ready" &&
     !metadataPending &&
     !channels.some((channel) => channel.channelType !== "solo");
-  // The relay adds a new member to the welcome channel after their first list
-  // can already have answered empty. Keep opening for a bounded time before
-  // offering recovery; Try again refreshes the list and waits once more.
+  // A list with nothing to open can be a new member's, read before the relay
+  // has added them to the welcome channel. Any such empty default keeps
+  // opening for a bounded time, once per workspace, before offering recovery;
+  // Try again refreshes the list and waits once more.
   const [listAttempt, setListAttempt] = useState(0);
   const [waitedOut, setWaitedOut] = useState(-1);
   const noChannels = emptyList && waitedOut === listAttempt;
@@ -2081,6 +2082,9 @@ function ChannelWorkspace({
                   type="button"
                   variant="primary"
                   onClick={() => {
+                    // This button leaves with the empty state; keep focus in
+                    // the pane that announces the wait.
+                    historyContainer.current?.focus({ preventScroll: true });
                     setListAttempt((attempt) => attempt + 1);
                     queries.channels.refreshList?.({ consistency: "strong" });
                   }}

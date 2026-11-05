@@ -235,12 +235,16 @@ function setup({
     focus: vi.fn(),
     getBoundingClientRect: () => ({ top: 0 }),
     querySelector: () => list,
+    // Row geometry reads `y` when asked, so a test can move the rows.
     querySelectorAll: () =>
-      mounted.map(({ id, y }) => ({
-        dataset: { messageId: id },
-        getBoundingClientRect: () => ({ top: y, bottom: y + 100 }),
+      mounted.map((row) => ({
+        dataset: { messageId: row.id },
+        getBoundingClientRect: () => ({ top: row.y, bottom: row.y + 100 }),
         querySelector: () => ({
-          getBoundingClientRect: () => ({ top: y + 32, bottom: y + 80 }),
+          getBoundingClientRect: () => ({
+            top: row.y + 32,
+            bottom: row.y + 80,
+          }),
         }),
       })),
   };
@@ -689,18 +693,47 @@ it("shows the start content only once the oldest history is loaded", () => {
   h.unmount();
 });
 it("keeps a settled reader's rows in place as start content enters and leaves the edge", () => {
-  const h = setup({ hasMore: true, start: "Welcome" });
-  h.element.scrollTop = 1200;
+  const row = { id: "first", y: 100 };
+  const h = setup({ hasMore: true, start: "Welcome", mounted: [row] });
+  // The rows' viewport geometry follows the scroll offset, as in a browser.
+  let offset = 1200;
+  Object.defineProperty(h.element, "scrollTop", {
+    configurable: true,
+    get: () => offset,
+    set(value: number) {
+      row.y -= value - offset;
+      offset = value;
+    },
+  });
   h.scroll();
   h.gesture(true);
-  // The last older page lands and the welcome enters the edge above the rows.
+  // The last older page lands and the welcome grows the edge above the rows,
+  // which moves them down before the shift's scroll event records a place.
   h.update({ hasMore: false });
+  row.y += 140;
+  h.dispatchScroll();
+  h.handle.scrollToIndex.mockClear();
   h.edge(140);
   expect(h.element.scrollTop).toBe(1340);
+  expect(row.y).toBe(100);
+  // The restore that follows the size change returns to the corrected place,
+  // not to the row's position after the edge had pushed it down.
+  expect(h.handle.scrollToIndex).toHaveBeenCalledWith(0, {
+    align: "start",
+    offset: -100,
+  });
+  for (const [, options] of h.handle.scrollToIndex.mock.calls)
+    expect(options).toEqual({ align: "start", offset: -100 });
   // Trimming the oldest page reopens history and the welcome leaves again.
   h.update({ hasMore: true });
+  row.y -= 140;
+  h.dispatchScroll();
+  h.handle.scrollToIndex.mockClear();
   h.edge(0);
   expect(h.element.scrollTop).toBe(1200);
+  expect(row.y).toBe(100);
+  for (const [, options] of h.handle.scrollToIndex.mock.calls)
+    expect(options).toEqual({ align: "start", offset: -100 });
   h.unmount();
 });
 it("leaves a following reader at the bottom when start content enters the edge", () => {

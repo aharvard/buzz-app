@@ -262,27 +262,47 @@ it("settles an unconfirmed save by reading again, clearing a draft the relay sho
     name: "Lobby",
   });
   await user.click(screen.getByRole("button", { name: "Check again" }));
-  await waitFor(() =>
-    expect(screen.queryByRole("button", { name: "Save" })).toBeNull(),
-  );
+  // The confirmed outcome is announced like a direct save.
+  expect(await screen.findByText("Welcome saved")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   expect(readLanding).toHaveBeenCalledTimes(2);
   expect(setLanding).toHaveBeenCalledTimes(1);
   expect(messageField()).toHaveValue("Say hello");
-  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByText(/Not confirmed yet/)).toBeNull();
 });
 
-it("keeps the draft and reopens Save when the check finds the change missing", async () => {
+it("keeps the draft in view during the check and reopens Save when the change is missing", async () => {
   const fixture = setup();
   const { readLanding, setLanding, user } = fixture;
   await unconfirmedSave(fixture);
+  let release!: (state: ChannelLanding) => void;
+  readLanding.mockImplementationOnce(
+    () =>
+      new Promise<ChannelLanding>((resolve) => {
+        release = resolve;
+      }),
+  );
   await user.click(screen.getByRole("button", { name: "Check again" }));
+  try {
+    // The published form stays in view while the relay is read again.
+    expect(readLanding).toHaveBeenCalledTimes(2);
+    expect(messageField()).toBeVisible();
+    expect(messageField()).toHaveValue("Say hello");
+    const check = screen.getByRole("button", { name: "Check again" });
+    expect(check).toHaveAttribute("aria-busy", "true");
+    expect(check).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  } finally {
+    release({ landing: true, welcome: "Hi there", name: "Lobby" });
+  }
   await waitFor(() =>
     expect(screen.getByRole("button", { name: "Save" })).toBeEnabled(),
   );
-  expect(readLanding).toHaveBeenCalledTimes(2);
   expect(setLanding).toHaveBeenCalledTimes(1);
   expect(messageField()).toHaveValue("Say hello");
-  expect(screen.queryByRole("alert")).toBeNull();
+  expect(messageField()).toHaveFocus();
+  expect(screen.queryByText(/Not confirmed yet/)).toBeNull();
+  expect(screen.queryByText("Welcome saved")).toBeNull();
 });
 
 it("shows Save only for a change, and Cancel returns to the published state", async () => {

@@ -549,10 +549,13 @@ it("keeps opening after an empty first list, then offers a list refresh instead 
         ["landing"],
       ]),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    const tryAgain = screen.getByRole("button", { name: "Try again" });
+    tryAgain.focus();
+    fireEvent.click(tryAgain);
     expect(
       screen.queryByRole("heading", { name: "You’re not in any channels yet" }),
     ).toBeNull();
+    expect(screen.getByRole("region", { name: "Channel history" })).toHaveFocus();
     await screen.findByRole("textbox", { name: "Message #Beta" });
   } finally {
     vi.useRealTimers();

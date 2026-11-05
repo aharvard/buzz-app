@@ -1308,11 +1308,12 @@ for every viewer, even with no messages: the community name and its custom
 message, or the default one. The card is not a message, so it has no unread
 state, actions or dismissal. While the channel list or its metadata is still
 loading, Messages shows **Opening your channels…** instead of the blank
-selection view, and keeps showing it for up to ten seconds after a list that
-arrives empty, since the relay can still be adding a new member to the welcome
-channel; a channel that arrives meanwhile opens at once. After that wait, an
-empty state offers **Try again**, which re-reads the channel list and waits the
-same way again. The client never joins the welcome channel for them. The relay adds people to its
+selection view. A list with no channel to open keeps that state for up to ten
+seconds, once per community visit, since the relay can still be adding a new
+member to the welcome channel; a channel that arrives meanwhile opens at once.
+A returning member with no channels left waits the same once. After that wait,
+an empty state offers **Try again**, which re-reads the channel list and waits
+the same way again. The client never joins the welcome channel for them. The relay adds people to its
 welcome and `auto_join` channels itself, welcome channel first, and the
 resulting membership hints populate the sidebar live:
 
