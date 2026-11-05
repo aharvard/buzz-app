@@ -99,7 +99,7 @@ export function DraftSettings({
     <ChatSettingsDialog
       dismissOnOutsideClick={false}
       dirty={
-        value !== name ||
+        canonicalDetailsName(value) !== canonicalDetailsName(name) ||
         ttl !== ttlSeconds ||
         (loaded && instructionsCanvas(workspace, raw) !== opened)
       }

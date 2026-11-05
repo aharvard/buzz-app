@@ -850,6 +850,12 @@ it.each(["Escape", "Close", "backdrop"] as const)(
     await user.click(keep);
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     expect(screen.getByRole("dialog", { name: "Edit chat" })).toBe(settings);
+    if (dismiss === "Close")
+      await waitFor(() =>
+        expect(
+          within(settings).getByRole("button", { name: "Close" }),
+        ).toHaveFocus(),
+      );
     expect(field).toHaveValue("My draft");
     expect(h.close).not.toHaveBeenCalled();
   },

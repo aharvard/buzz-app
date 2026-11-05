@@ -15,13 +15,14 @@ import { DraftSettings } from "./DraftSettings";
 
 afterEach(cleanup);
 
-async function view(canvas = "") {
+async function view(canvas = "", name?: string) {
   const close = vi.fn();
   const save = vi.fn();
   render(
     <DraftSettings
       session={{} as RelaySession}
       canvas={canvas}
+      name={name}
       close={close}
       save={save}
     />,
@@ -102,6 +103,19 @@ it("closes untouched or reverted settings at once, and Cancel discards edits wit
   expect(close).toHaveBeenCalledTimes(3);
   expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(save).not.toHaveBeenCalled();
+});
+
+it("closes a name changed only by formatting at once, but asks before dropping a rename", async () => {
+  const user = userEvent.setup();
+  const { close } = await view("", "Plan");
+  change(/^Chat name/, "#Plan ");
+  await user.keyboard("{Escape}");
+  expect(close).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  change(/^Chat name/, "Launch plan");
+  await user.keyboard("{Escape}");
+  expect(await prompt()).toBeVisible();
+  expect(close).toHaveBeenCalledOnce();
 });
 
 it("Escape in the prompt only dismisses the prompt and keeps an unadded folder path", async () => {
