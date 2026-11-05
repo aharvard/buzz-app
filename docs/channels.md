@@ -588,7 +588,9 @@ strong reread of the target's `39000`: the relay advertises a bare `landing` tag
 there while the channel is designated, plus a `welcome` tag when the message is
 custom. A `welcome` tag without `landing` is ignored. The relay's `invalid:`
 reason is shown with the draft kept. When the result can't be confirmed, the
-card asks the admin to save again.
+card keeps the draft, disables Save and offers **Check again**, which reads the
+designation and message from the relay afresh instead of republishing; a change
+that did land leaves nothing to save, while a missing one reopens Save.
 A published lifecycle command keeps its bounded, fresh, strong confirmation
 when access loss retires access-dependent work. Retired confirmation reads
 are reread; caller cancellation, session clear/disposal and the original deadline
@@ -1306,9 +1308,11 @@ for every viewer, even with no messages: the community name and its custom
 message, or the default one. The card is not a message, so it has no unread
 state, actions or dismissal. While the channel list or its metadata is still
 loading, Messages shows **Opening your channels…** instead of the blank
-selection view. If the list loads with no channels, an empty state offers
-**Try again**, which reconnects so the relay can retry adding the person. The
-client never joins the welcome channel for them. The relay adds people to its
+selection view, and keeps showing it for up to ten seconds after a list that
+arrives empty, since the relay can still be adding a new member to the welcome
+channel; a channel that arrives meanwhile opens at once. After that wait, an
+empty state offers **Try again**, which re-reads the channel list and waits the
+same way again. The client never joins the welcome channel for them. The relay adds people to its
 welcome and `auto_join` channels itself, welcome channel first, and the
 resulting membership hints populate the sidebar live:
 

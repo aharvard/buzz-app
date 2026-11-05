@@ -259,7 +259,7 @@ revokes all of them, and a pairing unused for 30 days expires.
   welcome card for everyone, showing the community's message or a default one.
   The card isn't a message: it can't be replied to, deleted or dismissed. While
   a new member's channels arrive, Messages says it is opening them. If none
-  arrive, **Try again** reconnects. Owners and admins choose the channel and edit
+  arrive within a few seconds, **Try again** checks for them again. Owners and admins choose the channel and edit
   the message, up to 1,000 characters of plain text, in **Settings → Community
   admin → Welcome**. That card appears only when the relay supports a welcome
   channel. People already in the community keep their channels when the welcome

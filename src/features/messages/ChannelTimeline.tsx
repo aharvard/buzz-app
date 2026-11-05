@@ -1354,6 +1354,12 @@ function Timeline({
         next.edgeHeight === measuredSize.edgeHeight
       )
         return;
+      // Start content entering or leaving the edge moves every row below it
+      // before Virtua learns the new start margin. Keep a settled reader's
+      // rows where they were; a following reader is pinned to the bottom.
+      const edgeDelta = next.edgeHeight - measuredSize.edgeHeight;
+      if (edgeDelta && settled.current && !follow.current)
+        correctScrollTop(element, edgeDelta);
       // A growing composer shrinks the viewport. Pin a reader who was at the
       // bottom before paint so history rises with it; the restore lands later.
       if (

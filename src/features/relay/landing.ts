@@ -31,7 +31,9 @@ export function normalizeWelcome(text: string) {
 export function welcomeTextProblem(
   text: string,
 ): "empty" | "long" | "control" | undefined {
-  if (!text.trim()) return "empty";
+  // Unicode White_Space, as the relay's `str::trim` sees it: unlike `trim()`
+  // it keeps U+FEFF, so a message of only that passes both hosts alike.
+  if (/^\p{White_Space}*$/u.test(text)) return "empty";
   if ([...text].length > WELCOME_MAX_LENGTH) return "long";
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(text)) return "control";

@@ -34,11 +34,14 @@ const message = (reason: unknown) =>
   reason instanceof Error ? reason.message : String(reason);
 const MAX = WELCOME_MAX_LENGTH.toLocaleString("en-US");
 
-/** What a failed save means for the draft, which is always kept. */
+/** The default is never stored: a draft matching it restores the default. */
+const commandFor = (text: string) => {
+  const normalized = normalizeWelcome(text);
+  return normalized === DEFAULT_WELCOME_MESSAGE ? "" : normalized;
+};
+
+/** What a definite failure means for the draft, which is always kept. */
 function saveError(error: unknown) {
-  // Saving the same state again is idempotent, so saving again is the check.
-  if (error instanceof ChannelLifecycleUnconfirmed)
-    return "Saved, but not confirmed yet. Save again to check.";
   if (error instanceof PublishNotSent) return "Not sent. Try again.";
   if (error instanceof PublishRejected) {
     const reason = error.reason?.replace(/^invalid:\s*/, "").trim();
@@ -119,6 +122,8 @@ function WelcomeForm({
   const [typed, setTyped] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // An unconfirmed publication: only a fresh read, never a repeat, settles it.
+  const [unconfirmed, setUnconfirmed] = useState(false);
   const [saved, setSaved] = useState(false);
   const mounted = useRef(true);
   const saveController = useRef<AbortController>(undefined);
@@ -152,14 +157,21 @@ function WelcomeForm({
           ? await lifecycle.readLanding(id, reading.signal)
           : undefined;
         reading.signal.throwIfAborted();
-        setLoad({
-          status: "ready",
-          published: {
-            ...(id && state ? { channelId: id } : {}),
-            ...(state?.name ? { name: state.name } : {}),
-            welcome: (state?.landing && state.welcome) || "",
-          },
-        });
+        const published: Published = {
+          ...(id && state ? { channelId: id } : {}),
+          ...(state?.name ? { name: state.name } : {}),
+          welcome: (state?.landing && state.welcome) || "",
+        };
+        setLoad({ status: "ready", published });
+        // A draft the relay now shows has landed; there is nothing to save.
+        setDraft((current) =>
+          current &&
+          current.channelId === published.channelId &&
+          commandFor(current.text) === published.welcome
+            ? undefined
+            : current,
+        );
+        setUnconfirmed(false);
       } catch (reason) {
         if (!reading.signal.aborted)
           setLoad({ status: "error", error: message(reason) });
@@ -185,8 +197,7 @@ function WelcomeForm({
   const channelId = draft ? draft.channelId : published?.channelId;
   const text = draft?.text ?? (published?.welcome || DEFAULT_WELCOME_MESSAGE);
   const normalized = normalizeWelcome(text);
-  // The default is never stored: matching it restores the default.
-  const command = normalized === DEFAULT_WELCOME_MESSAGE ? "" : normalized;
+  const command = commandFor(text);
   const problem = welcomeTextProblem(normalized);
   const dirty =
     !!published &&
@@ -278,8 +289,10 @@ function WelcomeForm({
                   setDraft(undefined);
                   setSaved(true);
                 } catch (reason) {
-                  if (mounted.current && !owner.signal.aborted)
-                    setError(saveError(reason));
+                  if (!mounted.current || owner.signal.aborted) return;
+                  if (reason instanceof ChannelLifecycleUnconfirmed)
+                    setUnconfirmed(true);
+                  else setError(saveError(reason));
                 } finally {
                   if (mounted.current) setSaving(false);
                 }
@@ -364,6 +377,23 @@ function WelcomeForm({
                 {error}
               </p>
             )}
+            {unconfirmed && (
+              <div role="alert" className={styles.unconfirmed}>
+                <p className="error">
+                  Not confirmed yet. The relay hasn’t shown this change; check
+                  before saving again.
+                </p>
+                <div>
+                  <Button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => setAttempt((n) => n + 1)}
+                  >
+                    Check again
+                  </Button>
+                </div>
+              </div>
+            )}
             {draft && (
               <div className="flex flex-wrap items-center justify-end gap-3">
                 <Button
@@ -380,7 +410,13 @@ function WelcomeForm({
                   type="submit"
                   variant="primary"
                   loading={saving}
-                  disabled={!dirty || !channelId || !!problem || !lifecycle.available}
+                  disabled={
+                    !dirty ||
+                    !channelId ||
+                    !!problem ||
+                    !lifecycle.available ||
+                    unconfirmed
+                  }
                 >
                   Save
                 </Button>

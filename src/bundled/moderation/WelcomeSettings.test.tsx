@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -17,6 +18,7 @@ import { DEFAULT_WELCOME_MESSAGE } from "../../features/communities/WelcomeCard"
 import {
   ChannelLifecycleUnconfirmed,
   type ChannelLanding,
+  type ChannelLifecycleCapability,
 } from "../../features/relay/channel-lifecycle";
 import { PublishRejected } from "../../features/relay/outbox";
 import type { RelayData } from "../../features/relay/service";
@@ -61,7 +63,9 @@ function setup({
   landing?: ChannelLanding | undefined;
 } = {}) {
   const readLanding = vi.fn(async () => landing);
-  const setLanding = vi.fn(async () => {});
+  const setLanding = vi.fn<ChannelLifecycleCapability["setLanding"]>(
+    async () => {},
+  );
   const session = {
     channelLifecycle: { available: true, readLanding, setLanding },
     channels: {
@@ -73,19 +77,30 @@ function setup({
       directoryComplete: () => true,
     },
   } as unknown as RelaySession;
-  const snapshot = {
+  let snapshot = {
     status: "ready",
     generation: 1,
     scope: `https://primary.example:${owner}`,
     viewer: owner,
     session,
   };
+  const listeners = new Set<() => void>();
   const relay = {
     snapshot: () => snapshot,
-    subscribe: () => () => {},
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
   } as unknown as RelayData;
+  /** The same community reconnects: a new session generation. */
+  const reconnect = () => {
+    snapshot = { ...snapshot, generation: snapshot.generation + 1 };
+    act(() => {
+      for (const listener of listeners) listener();
+    });
+  };
   vi.mocked(communityRequest).mockResolvedValue(info);
-  render(
+  const view = render(
     <WelcomeSettings
       relay={relay}
       communityName="Primary"
@@ -93,7 +108,7 @@ function setup({
     />,
     { wrapper: ToastProvider },
   );
-  return { readLanding, setLanding, user: userEvent.setup() };
+  return { readLanding, setLanding, reconnect, view, user: userEvent.setup() };
 }
 
 const channel = () => screen.getByRole("combobox", { name: "Welcome channel" });
@@ -221,18 +236,102 @@ it("shows the relay's reason and keeps the draft when it refuses", async () => {
   expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
 });
 
-it("asks to save again when the relay's change is not confirmed", async () => {
-  const { setLanding, user } = setup();
-  setLanding.mockRejectedValueOnce(
+/** Saves, but the relay never showed the result within the readback window. */
+async function unconfirmedSave(fixture: ReturnType<typeof setup>) {
+  fixture.setLanding.mockRejectedValueOnce(
     new ChannelLifecycleUnconfirmed(new Error("timeout")),
   );
   await waitFor(() => expect(messageField()).toHaveValue("Hi there"));
   fireEvent.change(messageField(), { target: { value: "Say hello" } });
-  await user.click(screen.getByRole("button", { name: "Save" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Saved, but not confirmed yet. Save again to check.",
-  );
+  await fixture.user.click(screen.getByRole("button", { name: "Save" }));
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent("Not confirmed yet");
+  expect(alert).not.toHaveTextContent("Saved");
+  // The draft stays, but another save would republish blind.
   expect(messageField()).toHaveValue("Say hello");
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+}
+
+it("settles an unconfirmed save by reading again, clearing a draft the relay shows", async () => {
+  const fixture = setup();
+  const { readLanding, setLanding, user } = fixture;
+  await unconfirmedSave(fixture);
+  readLanding.mockResolvedValue({
+    landing: true,
+    welcome: "Say hello",
+    name: "Lobby",
+  });
+  await user.click(screen.getByRole("button", { name: "Check again" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull(),
+  );
+  expect(readLanding).toHaveBeenCalledTimes(2);
+  expect(setLanding).toHaveBeenCalledTimes(1);
+  expect(messageField()).toHaveValue("Say hello");
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("keeps the draft and reopens Save when the check finds the change missing", async () => {
+  const fixture = setup();
+  const { readLanding, setLanding, user } = fixture;
+  await unconfirmedSave(fixture);
+  await user.click(screen.getByRole("button", { name: "Check again" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled(),
+  );
+  expect(readLanding).toHaveBeenCalledTimes(2);
+  expect(setLanding).toHaveBeenCalledTimes(1);
+  expect(messageField()).toHaveValue("Say hello");
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("shows Save only for a change, and Cancel returns to the published state", async () => {
+  const { setLanding, user } = setup();
+  await waitFor(() => expect(messageField()).toHaveValue("Hi there"));
+  fireEvent.change(messageField(), { target: { value: "Hi there!" } });
+  expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  // Typing back to the published text leaves nothing to save.
+  fireEvent.change(messageField(), { target: { value: "Hi there" } });
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  fireEvent.change(messageField(), { target: { value: "Draft" } });
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(messageField()).toHaveValue("Hi there");
+  expect(channel()).toHaveValue("Lobby");
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  expect(setLanding).not.toHaveBeenCalled();
+});
+
+it("starts over from the relay when the community's session changes", async () => {
+  const { readLanding, reconnect } = setup();
+  await waitFor(() => expect(messageField()).toHaveValue("Hi there"));
+  fireEvent.change(messageField(), { target: { value: "Draft" } });
+  reconnect();
+  await waitFor(() => expect(readLanding).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(messageField()).toHaveValue("Hi there"));
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+});
+
+it("abandons a save that is still in flight when the form closes", async () => {
+  const { setLanding, user, view } = setup();
+  let settle!: () => void;
+  setLanding.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        settle = resolve;
+      }),
+  );
+  await waitFor(() => expect(messageField()).toHaveValue("Hi there"));
+  fireEvent.change(messageField(), { target: { value: "Say hello" } });
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(setLanding).toHaveBeenCalledTimes(1));
+  const [, , signal, active] = setLanding.mock.calls[0] ?? [];
+  expect(active?.()).toBe(true);
+  view.unmount();
+  // The lifecycle owner checks this guard right before publishing.
+  expect(signal?.aborted).toBe(true);
+  expect(active?.()).toBe(false);
+  settle();
+  await act(async () => {});
 });
 
 it("offers a retry when the current welcome cannot be read", async () => {

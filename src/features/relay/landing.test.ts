@@ -45,6 +45,9 @@ describe("welcome text", () => {
     expect(welcomeTextProblem("😀".repeat(1000))).toBeUndefined();
     expect(welcomeTextProblem("a".repeat(1001))).toBe("long");
     expect(welcomeTextProblem(" \n ")).toBe("empty");
+    // U+FEFF is not Unicode White_Space: the relay keeps it, so both hosts do.
+    expect(welcomeTextProblem("\uFEFF")).toBeUndefined();
+    expect(welcomeTextProblem("\u2003\u3000")).toBe("empty");
     expect(welcomeTextProblem("line\nbreak")).toBeUndefined();
     for (const text of ["tab\t", "cr\r", "nul\u0000", "del\u007f", "c1\u0085"])
       expect(welcomeTextProblem(text)).toBe("control");

@@ -518,18 +518,69 @@ it("falls back when the viewer is not in the welcome channel", async () => {
   await screen.findByRole("textbox", { name: "Message #Alpha" });
 });
 
-it("offers a reconnect instead of a blank view when the viewer has no channels", async () => {
-  const { owner } = workspace([]);
+it("keeps opening after an empty first list, then offers a list refresh instead of a blank view", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const viewer = keypair(),
+      authority = keypair();
+    const events: RelayEvent[] = [];
+    const { owner } = workspace(events, viewer, authority);
+    await vi.waitFor(() =>
+      expect(owner.session.channels.list().status).toBe("ready"),
+    );
+    // The relay may still be adding this new member to the welcome channel.
+    expect(screen.getByText("Opening your channels…")).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { name: "You’re not in any channels yet" }),
+    ).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(9_000));
+    expect(screen.getByText("Opening your channels…")).toBeVisible();
+    await act(() => vi.advanceTimersByTimeAsync(1_000));
+    expect(
+      screen.getByRole("heading", { name: "You’re not in any channels yet" }),
+    ).toBeVisible();
+    expect(screen.queryByText("Select a channel to read it.")).toBeNull();
+    // Try again re-reads the list rather than reconnecting a healthy session,
+    // and waits for it the same bounded way.
+    events.push(
+      roster(authority, "beta", [viewer.pubkey]),
+      metadata(authority, "beta", "Beta", undefined, [
+        ["t", "stream"],
+        ["landing"],
+      ]),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(
+      screen.queryByRole("heading", { name: "You’re not in any channels yet" }),
+    ).toBeNull();
+    await screen.findByRole("textbox", { name: "Message #Beta" });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("opens the welcome channel as soon as it arrives while the opening state waits", async () => {
+  const viewer = keypair(),
+    authority = keypair();
+  const events: RelayEvent[] = [];
+  const { owner } = workspace(events, viewer, authority);
   await vi.waitFor(() =>
     expect(owner.session.channels.list().status).toBe("ready"),
   );
+  expect(screen.getByText("Opening your channels…")).toBeVisible();
+  events.push(
+    roster(authority, "beta", [viewer.pubkey]),
+    metadata(authority, "beta", "Beta", undefined, [
+      ["t", "stream"],
+      ["landing"],
+    ]),
+  );
+  owner.session.channels.refreshList?.();
+  await screen.findByRole("textbox", { name: "Message #Beta" });
+  expect(screen.getByRole("region", { name: "Welcome" })).toBeVisible();
   expect(
-    await screen.findByRole("heading", {
-      name: "You’re not in any channels yet",
-    }),
-  ).toBeVisible();
-  expect(screen.queryByText("Select a channel to read it.")).toBeNull();
-  expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+    screen.queryByRole("heading", { name: "You’re not in any channels yet" }),
+  ).toBeNull();
 });
 
 it("hands the community roster to Channel settings and follows the republished flag", async () => {

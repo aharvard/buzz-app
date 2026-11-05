@@ -325,6 +325,9 @@ function LiveNewMessage(
   return <NewMessage {...props} channels={channels} />;
 }
 
+/** How long an empty first channel list keeps the opening state. */
+const ENROLLMENT_WAIT_MS = 10_000;
+
 function ChannelWorkspace({
   extensions,
   chatMenus,
@@ -583,14 +586,31 @@ function ChannelWorkspace({
   // With nothing requested, the default channel is still arriving rather than
   // unchosen: a new member's welcome channel can follow the first list.
   const defaulting = !emptyDestination && !requestedChannel && !current;
-  const opening =
-    defaulting &&
-    (list.status === "idle" || list.status === "loading" || metadataPending);
-  const noChannels =
+  const emptyList =
     defaulting &&
     list.status === "ready" &&
     !metadataPending &&
     !channels.some((channel) => channel.channelType !== "solo");
+  // The relay adds a new member to the welcome channel after their first list
+  // can already have answered empty. Keep opening for a bounded time before
+  // offering recovery; Try again refreshes the list and waits once more.
+  const [listAttempt, setListAttempt] = useState(0);
+  const [waitedOut, setWaitedOut] = useState(-1);
+  const noChannels = emptyList && waitedOut === listAttempt;
+  useEffect(() => {
+    if (!emptyList || waitedOut === listAttempt) return;
+    const timer = setTimeout(
+      () => setWaitedOut(listAttempt),
+      ENROLLMENT_WAIT_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [emptyList, listAttempt, waitedOut]);
+  const opening =
+    defaulting &&
+    (list.status === "idle" ||
+      list.status === "loading" ||
+      metadataPending ||
+      (emptyList && !noChannels));
   useLayoutEffect(() => {
     // An open draft resolves nothing; keep the choice for when it closes.
     if (requestedDestination) chosen.current = requestedDestination.id;
@@ -2060,7 +2080,10 @@ function ChannelWorkspace({
                 <Button
                   type="button"
                   variant="primary"
-                  onClick={() => relay.retry()}
+                  onClick={() => {
+                    setListAttempt((attempt) => attempt + 1);
+                    queries.channels.refreshList?.({ consistency: "strong" });
+                  }}
                 >
                   Try again
                 </Button>

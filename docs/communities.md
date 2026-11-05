@@ -161,7 +161,8 @@ sending. A message matching the default is saved as the default rather than as
 custom text. **Restore default message** changes only the draft. A preview shows
 the card as members will see it. Save sends the whole state and confirms it as
 described in [channel lifecycle](channels.md#channel-lifecycle). A relay refusal is shown with
-its reason and the draft is kept. Archive, Delete, Make private and expiry are
+its reason and the draft is kept. A save the relay has not shown yet keeps the
+draft with Save disabled until **Check again** reads the relay's state. Archive, Delete, Make private and expiry are
 not disabled for the welcome channel yet; the relay refuses them, and that
 refusal is shown like any other lifecycle error.
 

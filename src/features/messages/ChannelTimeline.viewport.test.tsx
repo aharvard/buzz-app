@@ -213,6 +213,35 @@ it("shows one latest-agent preview, retains expanded history through appends, an
   }
 });
 
+it("renders the start content in the edge only once there is no older history", () => {
+  const { owner, updates, content } = activityFixture();
+  try {
+    const timeline = (hasMore: boolean) =>
+      cloneElement(content(updates(2)), {
+        start: <p>Welcome aboard</p>,
+        window: {
+          channelId: "alpha",
+          rows: updates(2),
+          status: "ready",
+          hasMore,
+          loadingOlder: false,
+          freshness: "verified",
+          error: undefined,
+        },
+      });
+    const view = render(timeline(true));
+    expect(screen.queryByText("Welcome aboard")).toBeNull();
+    view.rerender(timeline(false));
+    const welcome = screen.getByText("Welcome aboard");
+    expect(welcome).toBeVisible();
+    expect(welcome.closest("[data-start]")).not.toBeNull();
+    view.rerender(timeline(true));
+    expect(screen.queryByText("Welcome aboard")).toBeNull();
+  } finally {
+    owner.dispose();
+  }
+});
+
 it("shows the first three distinct agents in the visible identity cluster while retaining its full label", () => {
   const { owner, updates, content } = activityFixture();
   try {
