@@ -62,7 +62,11 @@ export interface ChannelLifecycleCapability {
   ): Promise<void>;
   snapshot(): DmVisibility;
   subscribe(listener: () => void): () => void;
-  refreshVisibility(signal?: AbortSignal): Promise<void>;
+  refreshVisibility(
+    signal?: AbortSignal,
+    /** "strong" reads the writer and does not join a replica-backed refresh. */
+    options?: Pick<ReadFilter, "consistency">,
+  ): Promise<void>;
   observeRemoval(listener: (channelId: string) => void): () => void;
 }
 
@@ -102,6 +106,7 @@ export function createChannelLifecycle({
   let refresh: Promise<void> | undefined;
   let refreshSignal: AbortSignal | undefined;
   let refreshController: AbortController | undefined;
+  let refreshStrong = false;
   const available = !!reader && !!writer;
   const emit = (next: DmVisibility) => {
     snapshot = Object.freeze(next);
@@ -322,9 +327,17 @@ export function createChannelLifecycle({
         listeners.delete(listener);
       };
     },
-    refreshVisibility(caller?: AbortSignal) {
+    refreshVisibility(
+      caller?: AbortSignal,
+      options?: Pick<ReadFilter, "consistency">,
+    ) {
       if (!reader || closed || caller?.aborted) return Promise.resolve();
-      if (refresh && !refreshSignal?.aborted) return refresh;
+      const strong = options?.consistency === "strong";
+      // A replica-backed refresh can predate the write a strong one checks;
+      // retire it instead of joining it.
+      if (refresh && !refreshSignal?.aborted && (refreshStrong || !strong))
+        return refresh;
+      refreshController?.abort();
       const started = epoch;
       const controller = new AbortController();
       refreshController = controller;
@@ -333,13 +346,16 @@ export function createChannelLifecycle({
         ...(caller ? [caller] : []),
       ]);
       refreshSignal = signal;
+      refreshStrong = strong;
       emit({ status: "loading", hidden: snapshot.hidden });
       // Exhausted errors omit `transient`, so session recovery cannot restart
       // them. A read retired by another channel's access change (`cancelled`)
       // retries within the same budget.
       const operation = retryRead(
         async () => {
-          await owned({ caller: signal }, readVisibility);
+          await owned({ caller: signal }, (signal) =>
+            readVisibility(signal, strong),
+          );
         },
         signal,
         isTransientFailure,
@@ -443,6 +459,8 @@ export function createChannelLifecycle({
             if (action === "join") return joined();
             if (action === "auto-join-on" || action === "auto-join-off")
               return flaggable();
+            // Read the writer: a refusal that sends the viewer to Refresh
+            // channels must not come from a replica older than that refresh.
             const settings = await load(
               id,
               signal,
@@ -451,6 +469,7 @@ export function createChannelLifecycle({
                 action === "delete"
                 ? action
                 : false,
+              true,
             );
             if (settings.deleteUnavailable)
               throw new Error(
