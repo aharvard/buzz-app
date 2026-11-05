@@ -220,17 +220,20 @@ function CustomTimeFields({
 /**
  * Snooze's Custom…: moves a reminder to a date and time the person enters,
  * starting from its current due time while that is still ahead, otherwise the
- * next 9am, so an Overdue or Done reminder never opens on a past time.
+ * next 9am, so an Overdue or Done reminder never opens on a past time. Once
+ * the reminder is `cancelled`, the dialog keeps what was typed but won't save.
  */
 export function SnoozeDialog({
   title,
   due,
+  cancelled,
   save,
   close,
   finalFocus,
 }: {
   title: string;
   due: number | undefined;
+  cancelled: boolean;
   save(notBefore: number): Promise<unknown>;
   close(): void;
   finalFocus(): HTMLElement | null;
@@ -275,7 +278,7 @@ export function SnoozeDialog({
           <Button
             variant="prominent"
             loading={pending}
-            disabled={pending || custom === null}
+            disabled={pending || cancelled || custom === null}
             onClick={() => void submit()}
           >
             Save
@@ -291,10 +294,18 @@ export function SnoozeDialog({
           onDateChange={setDate}
           onTimeChange={setTime}
         />
-        {error && (
-          <p role="alert" className="text-body text-subtle">
-            {error}
+        {/* A cancelled reminder can't be retried, so its notice replaces any
+            save error. */}
+        {cancelled ? (
+          <p role="status" className="text-body-sm text-subtle">
+            This reminder was cancelled.
           </p>
+        ) : (
+          error && (
+            <p role="alert" className="text-body text-subtle">
+              {error}
+            </p>
+          )
         )}
       </div>
     </Dialog>

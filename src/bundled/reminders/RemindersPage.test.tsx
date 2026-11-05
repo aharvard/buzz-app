@@ -339,6 +339,87 @@ it("keeps focus in the list when a custom snooze's reminder leaves the page", as
   );
 });
 
+it("won't let a custom snooze restore a reminder another device cancelled", async () => {
+  const user = userEvent.setup();
+  let state = {
+    status: "ready" as const,
+    reminders: [reminder("due soon", "pending", 1, now + 600)],
+  };
+  const listeners = new Set<() => void>();
+  const snooze = vi.fn<Reminders["snooze"]>(() => Promise.resolve());
+  page({
+    snapshot: () => state,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    snooze,
+  } as unknown as Reminders);
+  await user.click(screen.getByRole("button", { name: "Snooze: Ada" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Custom…" }));
+  const dialog = await screen.findByRole("dialog", { name: "Snooze reminder" });
+  const save = within(dialog).getByRole("button", { name: "Save" });
+  expect(save).toBeEnabled();
+  // The store keeps the cancelled reminder, and a snooze would write it back
+  // as pending.
+  act(() => {
+    state = {
+      ...state,
+      reminders: [reminder("due soon", "cancelled", 1, now + 600)],
+    };
+    for (const listener of listeners) listener();
+  });
+  expect(within(dialog).getByRole("status")).toHaveTextContent(
+    "This reminder was cancelled.",
+  );
+  expect(save).toBeDisabled();
+  fireEvent.click(save);
+  expect(snooze).not.toHaveBeenCalled();
+  expect(dialog).toBeInTheDocument();
+});
+
+it("checks the store again at Save, and still brings back a Done reminder", async () => {
+  const user = userEvent.setup();
+  const finished = reminder("finished", "done", 2);
+  let state = {
+    status: "ready" as const,
+    reminders: [reminder("due soon", "pending", 1, now + 600), finished],
+  };
+  const snooze = vi.fn<Reminders["snooze"]>(() => Promise.resolve());
+  page({
+    snapshot: () => state,
+    subscribe: () => () => {},
+    snooze,
+  } as unknown as Reminders);
+  await user.click(screen.getByRole("button", { name: "Snooze: Ada" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Custom…" }));
+  const dialog = await screen.findByRole("dialog", { name: "Snooze reminder" });
+  // Cancelled in the store before the page renders it, so Save is enabled.
+  state = {
+    ...state,
+    reminders: [reminder("due soon", "cancelled", 1, now + 600), finished],
+  };
+  await user.click(within(dialog).getByRole("button", { name: "Save" }));
+  expect(snooze).not.toHaveBeenCalled();
+  expect(await within(dialog).findByRole("alert")).toBeInTheDocument();
+  await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  // Only cancelled reminders are refused: a Done one can be reminded again.
+  fireEvent.click(screen.getByRole("button", { name: "Done 1" }));
+  await user.click(
+    screen.getByRole("button", { name: "Remind me again: Ada" }),
+  );
+  await user.click(await screen.findByRole("menuitem", { name: "Custom…" }));
+  const again = await screen.findByRole("dialog", { name: "Remind me again" });
+  expect(within(again).queryByRole("status")).toBeNull();
+  await user.click(within(again).getByRole("button", { name: "Save" }));
+  expect(snooze).toHaveBeenCalledExactlyOnceWith(
+    "finished",
+    expect.any(Number),
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+
 it("shows a note-only reminder without an open action", () => {
   page([
     {

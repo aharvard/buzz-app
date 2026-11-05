@@ -359,6 +359,7 @@ it("starts a custom snooze at the reminder's due time while it is ahead, else th
       <SnoozeDialog
         title="Snooze reminder"
         due={due}
+        cancelled={false}
         save={vi.fn()}
         close={vi.fn()}
         finalFocus={() => null}
@@ -390,6 +391,37 @@ it("starts a custom snooze at the reminder's due time while it is ahead, else th
       vi.useRealTimers();
     }
   }
+});
+
+it("keeps a cancelled reminder's custom snooze open, with what was typed, but won't save it", async () => {
+  const save = vi.fn(() => Promise.reject(new Error("offline")));
+  const props = {
+    title: "Snooze reminder",
+    due: new Date("2099-06-20T16:15").getTime() / 1000,
+    save,
+    close: vi.fn(),
+    finalFocus: () => null,
+  };
+  const view = render(<SnoozeDialog {...props} cancelled={false} />);
+  fireEvent.change(screen.getByLabelText("Reminder time"), {
+    target: { value: "17:30" },
+  });
+  await userEvent.setup().click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "The reminder could not be updated. Try again.",
+  );
+  view.rerender(<SnoozeDialog {...props} cancelled />);
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "This reminder was cancelled.",
+  );
+  // There is nothing to try again, so the notice replaces the save error.
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByLabelText("Reminder time")).toHaveValue("17:30");
+  const button = screen.getByRole("button", { name: "Save" });
+  expect(button).toBeDisabled();
+  fireEvent.click(button);
+  expect(save).toHaveBeenCalledOnce();
+  expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
 });
 
 it("stays open after a stray outside click", async () => {
