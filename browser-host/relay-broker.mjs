@@ -1,4 +1,5 @@
 import { isSidebarPreferencesBatch } from "../src/features/relay/sidebar-preferences.ts";
+import { isEarlierActivityFilter } from "../src/features/relay/earlier-activity.ts";
 import {
   isCatalogKind,
   MAX_EVENT_BYTES as CATALOG_EVENT_BYTES,
@@ -762,7 +763,8 @@ export function validFilters(filters) {
           )) ||
           (filter.kinds === undefined &&
             Array.isArray(filter.ids) &&
-            filter.ids.length > 0)) &&
+            filter.ids.length > 0) ||
+          isEarlierActivityFilter(filter)) &&
         Number.isInteger(filter.limit) &&
         filter.limit >= 1 &&
         filter.limit <= MAX_LIMIT,

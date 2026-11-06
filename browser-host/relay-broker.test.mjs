@@ -14,6 +14,8 @@ test("read broker accepts non-channel finite reads without relaxing filter budge
     { ids: ["event"], limit: 1 },
     { kinds: [9], search: "design", limit: 20 },
     { kinds: [9], "#e": ["root"], depth_limit: 10, limit: 80 },
+    // The welcome card's one question: has the viewer written anything yet?
+    { authors: ["a".repeat(64)], until: 1788810000, limit: 1 },
   ])
     assert.equal(validFilters([filter]), true);
   for (const filters of [
@@ -25,6 +27,12 @@ test("read broker accepts non-channel finite reads without relaxing filter budge
     [{ kinds: [65536], limit: 1 }],
     [{ kinds: [], limit: 1 }],
     [{ limit: 1 }],
+    // Only that exact author-only shape may omit kinds.
+    [{ authors: ["a".repeat(64)], limit: 1 }],
+    [{ authors: ["a".repeat(64)], until: 1788810000, limit: 2 }],
+    [{ authors: ["a".repeat(64), "b".repeat(64)], until: 1, limit: 1 }],
+    [{ authors: ["a".repeat(64)], until: 1, limit: 1, "#h": ["channel"] }],
+    [{ authors: ["viewer"], until: 1, limit: 1 }],
   ])
     assert.equal(validFilters(filters), false);
 });
