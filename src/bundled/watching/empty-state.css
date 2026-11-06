@@ -3,13 +3,11 @@
   display: grid;
   gap: var(--space-6);
   max-width: 56.25rem;
-  container-type: inline-size;
-  padding-block-start: var(--space-6);
+  padding: var(--space-6);
 }
 .attention-empty-copy {
   display: grid;
   gap: var(--space-2);
-  padding-inline: var(--space-6);
   text-align: center;
 }
 .attention-empty-copy h3,
@@ -17,21 +15,21 @@
   margin: 0;
 }
 .attention-empty-pile {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  align-content: start;
-  gap: 0;
-  max-height: 24rem;
-  overflow-y: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-3);
+  max-height: 240px;
+  overflow: hidden;
   margin: 0;
-  padding: var(--space-3) 0 0;
+  padding: var(--space-4) var(--space-2);
   list-style: none;
 }
 .attention-empty-piece {
   position: relative;
+  width: max-content;
   max-width: 100%;
-  margin-inline: calc(-1 * var(--space-2));
-  margin-block-start: calc(-1 * var(--space-3));
   touch-action: pan-y;
   cursor: grab;
 }
@@ -72,10 +70,4 @@
 :root[data-color-mode="dark"] .attention-empty-theme {
   --surface-message-own: var(--accent-9-dark);
   --text-message-own: var(--accent-ink-dark);
-}
-
-@container (max-width: 24rem) {
-  .attention-empty-pile {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
