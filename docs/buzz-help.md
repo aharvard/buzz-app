@@ -730,7 +730,7 @@ confirmation.
 - **Attention**, when available, lets agents use Interests, watches, and timers
   to follow work. Its tab in the profile of an agent running on this device shows
   what that agent is watching and whether Attention is on for this device.
-  With nothing watched yet, example messages show things you can ask the agent to watch. Send your own request in a conversation with the agent.
+  With nothing watched yet, example messages cycle through things you can ask the agent to watch. Hover over the card to pause them. Send your own request in a conversation with the agent.
   Each watch shows its source and Active or Paused state. Expand a
   watch, then expand “Activity” for a compact event timeline. Expand an event to read its full
   content, or expand “Watch details” for conditions and the execution destination. Select its status pill to

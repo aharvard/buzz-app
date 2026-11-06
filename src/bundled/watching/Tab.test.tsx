@@ -13,6 +13,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { AgentSaveState } from "../../features/agents/AgentSaveButton";
 import type { Context } from "../../plugins/author";
 import { createTab, describe } from "./Tab";
+import { AttentionEmptyState } from "./AttentionEmptyState";
 
 afterEach(cleanup);
 const viewer = "f".repeat(64);
@@ -1297,4 +1298,45 @@ it("shows a minimal activity timeline with full message and output previews", ()
     within(build).getByText("**second**", { selector: "pre" }),
   ).toBeTruthy();
   expect(within(build).queryByText("third", { selector: "pre" })).toBeNull();
+});
+
+it("rotates one example at a time and pauses while reading", async () => {
+  const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+  vi.useFakeTimers();
+  try {
+    render(<AttentionEmptyState name="Ada" />);
+    const region = screen.getByRole("region", { name: "Start watching" });
+    expect(screen.queryByRole("button")).toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5500);
+    });
+    expect(screen.getByText("Tell me when CI fails on this PR")).toBeTruthy();
+    expect(
+      screen.getByText("Tell me when my PR is ready to merge"),
+    ).toBeTruthy();
+    expect(screen.getByText("Check in every morning at 9")).toBeTruthy();
+    fireEvent.pointerEnter(region);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+    expect(
+      screen.queryByText("Watch this channel for deployment failures"),
+    ).toBeNull();
+    fireEvent.pointerLeave(region);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(
+      screen.getByText("Watch this channel for deployment failures"),
+    ).toBeTruthy();
+    hidden.mockReturnValue(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+    expect(screen.getByText("Check in every morning at 9")).toBeTruthy();
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+    hidden.mockRestore();
+  }
 });
