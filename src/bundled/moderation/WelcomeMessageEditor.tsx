@@ -8,6 +8,7 @@ import {
   type RefObject,
 } from "react";
 import { WelcomeMessage } from "../../features/communities/WelcomeCard";
+import type { ConversationExtensions } from "../../features/conversation/contracts";
 import { ComposerFormattingTools } from "../../features/messages/ComposerFormattingTools";
 import { ComposerLinkDialog } from "../../features/messages/ComposerLinkDialog";
 import {
@@ -143,6 +144,7 @@ export function WelcomeMessageEditor({
   session,
   scope,
   channelId,
+  extensions,
 }: {
   ref: RefObject<ComposerInputElement | null>;
   label: string;
@@ -156,6 +158,8 @@ export function WelcomeMessageEditor({
   scope: string;
   /** Scopes the names identity chips show to this channel's members. */
   channelId: string;
+  /** The link renderers messages use, so chips here look as the card's links do. */
+  extensions: ConversationExtensions | undefined;
 }) {
   const id = useId();
   const [draft, setDraft] = useState(() => mentionDraft(value));
@@ -197,6 +201,7 @@ export function WelcomeMessageEditor({
           session={session}
           scope={scope}
           channelId={channelId}
+          extensions={extensions}
           onOpenLink={noOpen}
           interactive={false}
         />

@@ -174,8 +174,9 @@ the start or end of the message on each side, outside Markdown code and links.
 Anywhere else, such as after `[@Name](`, an unclosed backtick or a URL being
 typed, it stays as pasted.
 Channel or message links pasted from **Copy link** show as chips in the editor,
-and as linked names in the card, where they open in place for members. It takes
-1–4,000 characters, with no control characters other than line breaks and tabs.
+with the same link presentation as in messages, and as linked names in the
+card, where they open in place for members. It takes 1–4,000 characters, with
+no control characters other than line breaks and tabs.
 Both are checked against the relay's rules as the admin types: text made only
 of spaces and invisible characters, such as zero-width spaces or the Braille
 blank, counts as empty, and hidden text-direction marks, embeddings, overrides

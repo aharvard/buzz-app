@@ -14,6 +14,7 @@ import {
   type CommunityInfo,
 } from "../../features/communities/api";
 import type { CommunityReader } from "../../features/communities/service";
+import type { ConversationExtensions } from "../../features/conversation/contracts";
 import {
   DEFAULT_WELCOME_MESSAGE,
   useDefaultWelcomeTitle,
@@ -114,11 +115,14 @@ export function WelcomeSettings({
   relay,
   communities,
   active,
+  extensions,
 }: {
   relay: RelayData;
   /** Names the community in the default title. */
   communities?: CommunityReader | undefined;
   active(): boolean;
+  /** Presents pasted links in the message editor as messages show them. */
+  extensions?: ConversationExtensions | undefined;
 }) {
   const connection = useRelayConnection(relay);
   const community =
@@ -140,6 +144,7 @@ export function WelcomeSettings({
           community={community}
           communities={communities}
           active={active}
+          extensions={extensions}
         />
       ) : (
         <p role="status">Choose a connected community to set its welcome.</p>
@@ -276,12 +281,14 @@ function WelcomeEditor({
   community,
   communities,
   active,
+  extensions,
 }: {
   session: RelaySession;
   scope: string;
   community: string;
   communities: CommunityReader | undefined;
   active(): boolean;
+  extensions: ConversationExtensions | undefined;
 }) {
   const lifecycle = session.channelLifecycle;
   const defaultTitle = useDefaultWelcomeTitle(communities, scope);
@@ -853,6 +860,7 @@ function WelcomeEditor({
                 session={session}
                 scope={scope}
                 channelId={channelId ?? ""}
+                extensions={extensions}
               />
               {(normalized !== DEFAULT_WELCOME_MESSAGE || command.title) && (
                 <div>

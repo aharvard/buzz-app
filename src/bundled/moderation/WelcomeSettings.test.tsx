@@ -21,9 +21,14 @@ import type {
   Membership,
 } from "../../features/communities/service";
 import { DEFAULT_WELCOME_MESSAGE } from "../../features/communities/WelcomeCard";
+import type {
+  ConversationExtensions,
+  LinkRenderer,
+} from "../../features/conversation/contracts";
 import type { ComposerInputElement } from "../../features/messages/composer-dom";
 import { composerDOMFixture } from "../../features/messages/composer-testing";
 import { profileTarget } from "../../features/profiles/target";
+import type { Contribution } from "../../plugins/contributions";
 import {
   ChannelLifecycleUnconfirmed,
   type ChannelLanding,
@@ -92,6 +97,7 @@ function setup({
   directory = rows,
   names,
   membership = { name: "Primary" },
+  extensions,
 }: {
   info?: CommunityInfo;
   landing?: ChannelLanding | undefined;
@@ -102,6 +108,8 @@ function setup({
   names?: Readonly<Record<string, string>>;
   /** How the viewer's saved membership names the community. */
   membership?: Omit<Membership, "id">;
+  /** The conversation's renderers, as the plugin passes them. */
+  extensions?: ConversationExtensions;
 } = {}) {
   const readLanding = vi.fn<ChannelLifecycleCapability["readLanding"]>(
     async () => landing,
@@ -202,6 +210,7 @@ function setup({
       relay={relay}
       communities={communities}
       active={() => true}
+      extensions={extensions}
     />,
     { wrapper: ToastProvider },
   );
@@ -302,6 +311,42 @@ it("writes toolbar formatting and a pasted channel link into the message as Mark
       expect.any(Function),
     ),
   );
+});
+
+// Link styling comes from the links plugin's renderer, which messages reach
+// through the conversation extensions. Without them, a pasted channel link
+// shows as plain `#name` text in the editor while the card underlines it.
+it("shows a pasted channel link through the conversation's link renderer, as the card does", async () => {
+  const renderer: Contribution<LinkRenderer> = {
+    id: "links",
+    title: "Links",
+    key: "test/links",
+    pluginId: "test",
+    revision: "one",
+    matches: (url) => url.startsWith("buzz://channel/"),
+    className: "link-style",
+    component: ({ url }) => <span>{url}</span>,
+  };
+  const subscribe = () => () => {};
+  setup({
+    extensions: {
+      links: { snapshot: () => [renderer], subscribe },
+      inline: { snapshot: () => [], subscribe },
+      tools: { snapshot: () => [], subscribe },
+    },
+  });
+  await waitFor(() => expect(messageField()).toHaveValue("Hi there"));
+  pasteIntoMessage(`buzz://channel/${square}`);
+  const chip = await waitFor(() => {
+    const found = messageField().querySelector("[data-link-renderer]");
+    expect(found).not.toBeNull();
+    return found as HTMLElement;
+  });
+  // The chip only names the channel: no anchor, so nothing opens from the editor.
+  expect(chip.tagName).toBe("SPAN");
+  expect(chip).toHaveAttribute("data-link-renderer", "test/links");
+  expect(chip).toHaveClass("link-style");
+  expect(chip).toHaveTextContent(`buzz://channel/${square}`);
 });
 
 /** A plain-text clipboard holding `text`. */

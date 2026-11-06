@@ -8,6 +8,7 @@ export const inject = [
   "settingsCards",
   "adminAccess",
   "communityReader",
+  "conversation",
 ];
 export const apply: PluginModule["apply"] = (ctx) => {
   const relay = ctx.relay;
@@ -52,7 +53,9 @@ export const apply: PluginModule["apply"] = (ctx) => {
     ),
   });
   // Owners and admins set the welcome and starter channels. The card itself
-  // keeps the welcome form to relays that support it.
+  // keeps the welcome form to relays that support it. The message editor
+  // shows pasted links through the conversation's link renderers, as the
+  // card does.
   ctx.settingsCards.register({
     id: "welcome",
     title: "Welcome",
@@ -67,6 +70,7 @@ export const apply: PluginModule["apply"] = (ctx) => {
         relay={relay}
         communities={ctx.communityReader}
         active={active}
+        extensions={ctx.conversation}
       />
     ),
   });

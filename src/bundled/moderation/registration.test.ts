@@ -66,6 +66,9 @@ it("registers the Membership card under the key the community rail opens", async
     snapshot: () => ({ memberships: [] }),
     subscribe: () => () => {},
   } as unknown as CommunityReader);
+  // Its message editor shows pasted links through the conversation's
+  // link renderers.
+  root.provide("conversation", {} as never);
   const access = createAdminAccess(
     data,
     {
@@ -129,6 +132,7 @@ it.each([
       snapshot: () => ({ memberships: [] }),
       subscribe: () => () => {},
     } as unknown as CommunityReader);
+    root.provide("conversation", {} as never);
     const access = createAdminAccess(
       data,
       {
