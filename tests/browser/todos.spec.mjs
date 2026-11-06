@@ -352,10 +352,11 @@ test("opt-in Todos saves ordinary Canvas and disabling leaves it editable", asyn
   await expect(canvas).toBeEditable();
 });
 
-// Browser-only boundary: Close all tabs retires the thread's native history
-// visit, and the page's return to the channel visit must keep the launcher's
-// side panel, or keep it hidden in a closed pane. jsdom page tests don't route
-// visits through navigation.
+// Browser-only boundary: Back and Close all tabs move through native history
+// visits. Back restores the channel visit's own closed pane, and Close all
+// tabs' return to the channel visit must keep the launcher's side panel, or
+// keep it hidden in a closed pane. jsdom page tests don't route visits through
+// navigation.
 test("Todos isn't a tab: Close all tabs keeps it, and its launcher tracks the pane", async ({
   page,
   app,
@@ -433,6 +434,23 @@ test("Todos isn't a tab: Close all tabs keeps it, and its launcher tracks the pa
   await page
     .getByRole("button", { name: "Toggle tab pane", expanded: true })
     .click();
+  await expect(todos).toBeHidden();
+  await expect(launcher).toHaveAttribute("aria-expanded", "false");
+  await launcher.click();
+  await expect(todos).toBeVisible();
+  await expect(thread).toBeVisible();
+  await thread.click({ button: "right" });
+  await page
+    .getByRole("menuitem", { name: "Close all tabs", exact: true })
+    .click();
+  await expect(thread).toHaveCount(0);
+  await expect(todos).toBeVisible();
+  await expect(launcher).toHaveAttribute("aria-expanded", "true");
+  // Back restores the channel visit's closed pane, hiding Todos; one press
+  // shows it with the thread tab, and Close all tabs from there keeps it.
+  await activate(viewThread);
+  await expect(thread).toHaveAttribute("aria-selected", "true");
+  await page.goBack();
   await expect(todos).toBeHidden();
   await expect(launcher).toHaveAttribute("aria-expanded", "false");
   await launcher.click();
