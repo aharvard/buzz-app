@@ -1303,8 +1303,13 @@ first-channel fallbacks wait. They also wait for the relay's NIP-11 document,
 read when Messages has nothing saved or requested to open, and while the
 welcome channel it names is not listed yet: no DM or other channel opens in its
 place until it arrives or ten seconds pass from the channel list first loading.
-The channel opened when that wait ends is saved as the selection, so the next
-opening does not wait again. The relay's membership hints can still add a new
+That wait applies only while the list still looks like a new member's, with
+nothing but the relay's starter channels and DMs in it; once a channel the
+person joined themselves is listed, the relay is not adding them to the welcome
+channel, so the fallback opens at once, as for a member from before it was
+designated or one who left it. The channel opened when the wait ends is saved
+as the selection, so the next opening does not wait again. A saved selection
+the list has, even with its metadata still arriving, needs no NIP-11 read. The relay's membership hints can still add a new
 member to their starter channel before their welcome channel, so a fallback
 opened while no welcome channel is listed is provisional: a welcome channel that
 arrives within ten seconds of the channel list first loading replaces it, unless

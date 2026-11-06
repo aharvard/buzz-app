@@ -681,15 +681,21 @@ it("shows an empty list at once on a relay without welcome channels", async () =
   expect(landing).toHaveBeenCalledWith("https://relay.test", expect.anything());
 });
 
-/** A new member listed only in a DM so far, on a relay whose NIP-11 names
- * `beta` as its welcome channel. */
-async function awaitingWelcome(hosted = false) {
+/** A member listed in a DM, and with `joined` in a stream channel they joined
+ * themselves, on a relay whose NIP-11 names `beta` as its welcome channel. */
+async function awaitingWelcome({ hosted = false, joined = false } = {}) {
   const viewer = keypair(),
     authority = keypair(),
     other = keypair();
   const events: RelayEvent[] = [
     roster(authority, "pat", [viewer.pubkey, other.pubkey]),
     metadata(authority, "pat", "Pat", undefined, [["t", "dm"]]),
+    ...(joined
+      ? [
+          roster(authority, "alpha", [viewer.pubkey, other.pubkey]),
+          metadata(authority, "alpha", "Alpha", undefined, [["t", "stream"]]),
+        ]
+      : []),
   ];
   const landing = vi.fn<LandingReader>(async () => ({
     landingChannels: true,
@@ -728,10 +734,65 @@ it("waits for the welcome channel the relay names rather than open a DM, then op
   expect(screen.getByRole("region", { name: "Welcome" })).toBeVisible();
 });
 
+it("opens a channel the person joined themselves at once, though the relay names an unlisted welcome channel", async () => {
+  // Only a new member's list, of starter channels and DMs, is still being
+  // filled by the relay; an established member's is not held.
+  await awaitingWelcome({ joined: true });
+  expect(
+    await screen.findByRole("textbox", { name: "Message #Alpha" }),
+  ).toBeVisible();
+  expect(screen.queryByText("Opening your channels…")).toBeNull();
+});
+
+it("skips the NIP-11 read for a saved selection whose metadata is still arriving", async () => {
+  const viewer = keypair(),
+    authority = keypair();
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const landing = vi.fn<LandingReader>(async () => ({
+    landingChannels: true,
+    landingChannel: "beta",
+  }));
+  const scope = `https://relay.test:${viewer.pubkey}`;
+  writeView(scope, "selected-channel", "alpha");
+  const { owner } = workspace(
+    [
+      roster(authority, "alpha", [viewer.pubkey]),
+      metadata(authority, "alpha", "Alpha", undefined, [["t", "stream"]]),
+    ],
+    viewer,
+    authority,
+    (filters) =>
+      filters.some(
+        (filter) =>
+          filter.kinds?.includes(39000) && filter["#d"]?.includes("alpha"),
+      )
+        ? held
+        : undefined,
+    landing,
+  );
+  try {
+    await vi.waitFor(() =>
+      expect(owner.session.channels.list().status).toBe("ready"),
+    );
+    expect(
+      owner.session.channels.list().channels.find(({ id }) => id === "alpha")
+        ?.metadataPending,
+    ).toBe(true);
+    expect(screen.getByText("Opening your channels…")).toBeVisible();
+  } finally {
+    release();
+  }
+  await screen.findByRole("textbox", { name: "Message #Alpha" });
+  expect(landing).not.toHaveBeenCalled();
+});
+
 it("opens and keeps the DM once the welcome channel the relay names stays unlisted", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {
-    const { scope, navigator } = await awaitingWelcome(true);
+    const { scope, navigator } = await awaitingWelcome({ hosted: true });
     // The visit opened on the wait; the DM then replaces it.
     expect(navigator.snapshot().status).toBe("opened");
     await act(() => vi.advanceTimersByTimeAsync(9_000));

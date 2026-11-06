@@ -596,7 +596,8 @@ function ChannelWorkspace({
   /** When the list first loaded; the opening waits are measured from it. */
   const listed = useRef<number>(undefined);
   // With nothing saved or requested, the relay's NIP-11 document names its
-  // welcome channel before the list can: a new member's list may not have it yet.
+  // welcome channel before the list can: a new member's list may not have it
+  // yet. A saved selection the list has, metadata pending or not, needs no read.
   const community = communityFromScope(scope);
   const needsLanding =
     !!landing &&
@@ -605,7 +606,9 @@ function ChannelWorkspace({
     !emptyDestination &&
     !requestedChannel &&
     !kept &&
-    (!selected || list.status === "ready");
+    (!selected ||
+      (list.status === "ready" &&
+        !list.channels.some((channel) => channel.id === selected)));
   const [landingRead, setLandingRead] = useState<Landing | "failed">();
   useEffect(() => {
     if (!needsLanding || landingRead || !landing || !community) return;
@@ -620,11 +623,22 @@ function ChannelWorkspace({
   const awaited = landingInfo?.landingChannel;
   // While that read is pending, or names a channel not listed yet, no other
   // channel opens in its place, until ENROLLMENT_WAIT_MS after the list loaded.
+  // Only while the list still looks like a new member's: nothing but the
+  // relay's starter channels and DMs. A channel the person joined themselves
+  // means the relay is not adding them to the welcome channel now, as for a
+  // member from before it was designated, or one who left it.
   const [heldOut, setHeldOut] = useState(false);
+  const newcomer = channels.every(
+    (channel) =>
+      channel.autoJoin ||
+      channel.channelType === "dm" ||
+      channel.channelType === "solo",
+  );
   const holdFallback =
     needsLanding &&
     !heldOut &&
     !welcomeChannel &&
+    newcomer &&
     list.status !== "error" &&
     (!landingRead ||
       (!!awaited && !list.channels.some((channel) => channel.id === awaited)));

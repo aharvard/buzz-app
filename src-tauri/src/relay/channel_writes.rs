@@ -83,23 +83,65 @@ fn details_labels(labels: &[Vec<String>]) -> bool {
         }
     }
 }
+/// The relay's invisible characters: soft hyphen, fillers, joiners and
+/// direction marks, variation selectors, Braille blank, BOM, shorthand and
+/// musical format controls, tags and the like. `landing.ts` lists the same.
+fn invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{AD}'
+            | '\u{34F}'
+            | '\u{61C}'
+            | '\u{115F}'
+            | '\u{1160}'
+            | '\u{17B4}'
+            | '\u{17B5}'
+            | '\u{180B}'..='\u{180F}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{206F}'
+            | '\u{2800}'
+            | '\u{3164}'
+            | '\u{FE00}'..='\u{FE0F}'
+            | '\u{FEFF}'
+            | '\u{FFA0}'
+            | '\u{FFF9}'..='\u{FFFB}'
+            | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0000}'..='\u{E007F}'
+            | '\u{E0100}'..='\u{E01EF}'
+    )
+}
+/// The relay's blank rule: every scalar value is Unicode White_Space or invisible.
+fn blank(text: &str) -> bool {
+    text.chars().all(|c| c.is_whitespace() || invisible(c))
+}
+/// Bidirectional marks, embeddings, overrides and isolates, refused anywhere.
+fn bidi(c: char) -> bool {
+    matches!(
+        c,
+        '\u{61C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+    )
+}
 /// The welcome message is `""` (restore the default) or 1–4000 scalar values
-/// of Markdown source whose only control characters are `\n` and `\t`,
-/// matching the relay's rules.
+/// of Markdown source that is not blank, has no direction characters, and
+/// whose only control characters are `\n` and `\t`, matching the relay's rules.
 fn welcome(text: &str) -> bool {
     text.is_empty()
-        || (!text.trim().is_empty()
+        || (!blank(text)
+            && !text.chars().any(bidi)
             && text.chars().count() <= 4000
             && text
                 .chars()
                 .all(|c| matches!(c, '\n' | '\t') || !c.is_control()))
 }
 /// The welcome title is `""` (restore the default) or 1–120 scalar values on
-/// one line: no control characters and no Unicode line or paragraph
-/// separator, matching the relay's rules.
+/// one line: not blank, no direction characters, no control characters and no
+/// Unicode line or paragraph separator, matching the relay's rules.
 fn welcome_title(text: &str) -> bool {
     text.is_empty()
-        || (!text.trim().is_empty()
+        || (!blank(text)
+            && !text.chars().any(bidi)
             && text.chars().count() <= 120
             && !text
                 .chars()
@@ -625,6 +667,63 @@ mod boundary_tests {
         let mut content = event;
         content["content"] = serde_json::json!("x");
         assert!(validate("channel-lifecycle", &content, None).is_err());
+    }
+
+    /// The same cases as `landing.test.ts`: text of only whitespace and
+    /// invisible characters is blank, and direction characters are refused
+    /// anywhere, for the message and the title alike.
+    #[test]
+    fn landing_command_mirrors_the_relay_blank_and_direction_rules() {
+        let channel = uuid::Uuid::nil().to_string();
+        let event = serde_json::json!({
+            "kind": 9002,
+            "created_at": 1700000010,
+            "content": "",
+            "tags": [
+                ["h", channel],
+                ["landing", "true"],
+                ["welcome", ""],
+                ["welcome_title", ""]
+            ]
+        });
+        let accepted = |index: usize, text: &str| {
+            let mut command = event.clone();
+            command["tags"][index][1] = serde_json::json!(text);
+            validate("channel-lifecycle", &command, None).is_ok()
+        };
+        for text in [
+            "\u{200B}",
+            "\u{2800}",
+            " \u{200B} ",
+            "\u{FEFF}",
+            "\u{AD}\u{34F}\u{115F}\u{1160}\u{3164}\u{FFA0}",
+            "\u{180B}\u{2060}\u{206F}\u{FE00}\u{FE0F}\u{FFF9}",
+            "\u{1D173}\u{E0000}\u{E007F}",
+            "\u{1BCA0}\u{1BCA3}\u{E0100}\u{E01EF}",
+            "\u{200E}\u{200F}",
+            "\u{2003}\u{3000}",
+            " \n ",
+        ] {
+            assert!(!accepted(2, text), "blank message {text:?}");
+            assert!(!accepted(3, text), "blank title {text:?}");
+        }
+        // Invisible characters beside visible text are kept.
+        assert!(accepted(2, "Hello\u{200B}world"));
+        assert!(accepted(3, "Hello\u{200B}world"));
+        for mark in [
+            "\u{61C}", "\u{200E}", "\u{200F}", "\u{202A}", "\u{202E}", "\u{2066}", "\u{2069}",
+        ] {
+            assert!(
+                !accepted(2, &format!("{mark}abc")),
+                "direction in message {mark:?}"
+            );
+            assert!(
+                !accepted(3, &format!("a{mark}bc")),
+                "direction in title {mark:?}"
+            );
+        }
+        let overlong = format!("\u{202E}{}", "a".repeat(4001));
+        assert!(!accepted(2, &overlong));
     }
     #[test]
     fn lifecycle_accepts_only_exact_archive_and_auto_join_values() {

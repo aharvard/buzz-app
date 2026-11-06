@@ -44,10 +44,11 @@ export function normalizeWelcome(text: string) {
 
 // The relay's blank rule: every code point is Unicode White_Space or one of
 // these invisible ones (soft hyphen, fillers, joiners and direction marks,
-// variation selectors, Braille blank, BOM, tags and the like).
+// variation selectors, Braille blank, BOM, shorthand and musical format
+// controls, tags and the like). The native host's validator lists the same.
 const blank = (text: string) =>
   // biome-ignore lint/suspicious/noMisleadingCharacterClass: each listed code point is matched on its own, joiners and selectors included.
-  /^[\p{White_Space}\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB\u{1D173}-\u{1D17A}\u{E0000}-\u{E007F}]*$/u.test(
+  /^[\p{White_Space}\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB\u{1BCA0}-\u{1BCA3}\u{1D173}-\u{1D17A}\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]*$/u.test(
     text,
   );
 // Bidirectional marks, embeddings, overrides and isolates, refused anywhere.

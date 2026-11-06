@@ -130,6 +130,7 @@ describe("welcome blank and direction rules", () => {
       "\u00AD\u034F\u115F\u1160\u3164\uFFA0",
       "\u180B\u2060\u206F\uFE00\uFE0F\uFFF9",
       "\u{1D173}\u{E0000}\u{E007F}",
+      "\u{1BCA0}\u{1BCA3}\u{E0100}\u{E01EF}",
     ]) {
       expect(welcomeTextProblem(text)).toBe("empty");
       expect(welcomeTitleProblem(text)).toBe("empty");

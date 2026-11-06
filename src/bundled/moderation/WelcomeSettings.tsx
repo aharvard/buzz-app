@@ -3,6 +3,7 @@ import {
   type RefObject,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -305,14 +306,18 @@ function WelcomeEditor({
   const [unconfirmed, setUnconfirmed] = useState<"welcome" | StarterStep>();
   const [checking, setChecking] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Starter edits change the list without moving focus; this tells of them.
+  const [announcement, setAnnouncement] = useState("");
   // The check compares the relay's answer with the draft as it stands then.
   const draftRef = useRef(draft);
   draftRef.current = draft;
   // The starter steps Save would run, for a check deciding whether all landed.
   const pendingSteps = useRef<readonly StarterStep[]>([]);
   const checkButton = useRef<HTMLButtonElement>(null);
+  const channelInput = useRef<HTMLInputElement>(null);
   const messageInput = useRef<ComposerInputElement>(null);
   const addInput = useRef<HTMLInputElement>(null);
+  const actionsRow = useRef<HTMLDivElement>(null);
   const mounted = useRef(true);
   const saveController = useRef<AbortController>(undefined);
   useEffect(() => {
@@ -341,6 +346,14 @@ function WelcomeEditor({
         reading.signal.throwIfAborted();
         if (!info.landingChannels) {
           setLoad({ status: "unsupported" });
+          // The welcome can no longer be saved here, so its draft and an
+          // unconfirmed save of it end with this read.
+          setDraft(undefined);
+          setUnconfirmed((current) =>
+            current === "welcome" ? undefined : current,
+          );
+          setChecking(false);
+          if (check) stayInForm(checkButton.current, addInput.current);
           return;
         }
         const id = info.landingChannel;
@@ -462,9 +475,17 @@ function WelcomeEditor({
     );
     setStarterErrors((current) => without(current, channel.id));
     if (enabled || addError?.id === channel.id) setAddError(undefined);
+    setAnnouncement(
+      `#${channel.name} will be ${enabled ? "added" : "removed"} when you save`,
+    );
     setSaved(false);
     setError("");
   };
+  // Cancel and Save take the action row away; focus on it rests on the
+  // welcome channel field, or the add field where there is no welcome form.
+  const restFocus = () =>
+    (channelInput.current ?? addInput.current)?.focus({ preventScroll: true });
+  const actionsShown = useRef(false);
   const isActive = () => mounted.current && active();
   // The welcome first, then each starter flag in turn. A confirmed step is
   // published; a refused one returns to its published state, where its reason
@@ -531,8 +552,12 @@ function WelcomeEditor({
         else {
           const { id, enabled } = step;
           setStarterDraft((current) => without(current, id));
-          if (enabled) setAddError({ id, message: saveError(reason) });
-          else setStarterErrors(new Map([[id, saveError(reason)]]));
+          if (enabled) {
+            setAddError({ id, message: saveError(reason) });
+            // The reason shows on the add field; focus from Save follows it.
+            if (actionsRow.current?.contains(document.activeElement))
+              addInput.current?.focus({ preventScroll: true });
+          } else setStarterErrors(new Map([[id, saveError(reason)]]));
         }
       } finally {
         if (mounted.current) setSaving(false);
@@ -592,7 +617,10 @@ function WelcomeEditor({
     />
   );
   const actions = (draft !== undefined || steps.length > 0) && (
-    <div className="flex flex-wrap items-center justify-end gap-3">
+    <div
+      ref={actionsRow}
+      className="flex flex-wrap items-center justify-end gap-3"
+    >
       <Button
         type="button"
         disabled={saving}
@@ -602,6 +630,7 @@ function WelcomeEditor({
           setError("");
           setStarterErrors(new Map());
           setAddError(undefined);
+          if (steps.length) setAnnouncement("Starter changes discarded");
         }}
       >
         Cancel
@@ -652,6 +681,18 @@ function WelcomeEditor({
       {actions}
     </div>
   );
+  // A Save or Cancel that was focused leaves with the row; an element that
+  // stays takes the focus, which would otherwise fall to the document.
+  useLayoutEffect(() => {
+    const shown = !!actions;
+    if (
+      actionsShown.current &&
+      !shown &&
+      (!document.activeElement || document.activeElement === document.body)
+    )
+      restFocus();
+    actionsShown.current = shown;
+  });
   const toast = saved && (
     <ToastNotice
       title="Welcome saved"
@@ -659,6 +700,11 @@ function WelcomeEditor({
       timeout={5000}
       onDismiss={() => setSaved(false)}
     />
+  );
+  const status = (
+    <p role="status" className="sr-only">
+      {announcement}
+    </p>
   );
   return (
     <LoadingRegion
@@ -684,6 +730,7 @@ function WelcomeEditor({
       {!supported ? (
         <div className={styles.editor}>
           {starters}
+          {status}
           {footer}
           {toast}
         </div>
@@ -721,6 +768,7 @@ function WelcomeEditor({
                 autoHighlight
               >
                 <Combobox.Control
+                  ref={channelInput}
                   label="Welcome channel"
                   triggerLabel="Browse channels"
                   placeholder="Choose a public channel"
@@ -815,6 +863,7 @@ function WelcomeEditor({
             </form>
           </SettingsGroup>
           {starters}
+          {status}
           {footer}
           {toast}
         </div>
