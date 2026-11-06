@@ -154,7 +154,7 @@ function setup(read: (id: string) => Promise<AgentCardDraft>) {
     unread: undefined,
     channels: { list: () => list, subscribeList: () => () => {} },
   } as unknown as RelaySession;
-  return { registry, session };
+  return { registry, session, reads };
 }
 
 it("shows the card's name and picture, and its hover card opens Add to Buzz", async () => {
@@ -263,7 +263,7 @@ it("keeps a plain click on the link opening the page", async () => {
 });
 
 it("keeps an authored label, and a card that can't be read stays a plain link", async () => {
-  const { registry, session } = setup(async (id) => {
+  const { registry, session, reads } = setup(async (id) => {
     if (id === "tinker") throw new Error("missing");
     return laggo;
   });
@@ -296,9 +296,8 @@ it("keeps an authored label, and a card that can't be read stays a plain link", 
   const missing = screen.getByRole("link", {
     name: "https://builderlab.xyz/agents/tinker",
   });
-  await waitFor(() =>
-    expect(missing).toHaveTextContent("https://builderlab.xyz/agents/tinker"),
-  );
+  await waitFor(() => expect(reads.get("tinker")?.state).toBe("failed"));
+  expect(missing).toHaveTextContent("https://builderlab.xyz/agents/tinker");
   expect(missing.querySelector("[data-avatar-shape]")).toBeNull();
 });
 
