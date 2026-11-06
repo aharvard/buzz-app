@@ -666,13 +666,28 @@ it("selects a default channel the relay adds after the page opened", async () =>
 });
 
 /** A new member's empty first list, then a membership hint confirming their
- * starter channel on its own read, as the relay's hints can arrive. Routed,
- * the page shows the navigator's current visit, as the host routes Messages. */
-async function starterConfirmedFirst(routed = false) {
+ * starter channel on its own read, as the relay's hints can arrive; with
+ * `listedFirst`, the first list already has it. Routed, the page shows the
+ * navigator's current visit, as the host routes Messages. */
+async function starterConfirmedFirst({
+  routed = false,
+  listedFirst = false,
+} = {}) {
   const viewer = keypair(),
     authority = keypair();
-  const events: RelayEvent[] = [];
-  const { owner, navigator, visit } = workspace(events, viewer, authority);
+  const starter = [
+    roster(authority, "alpha", [viewer.pubkey]),
+    metadata(authority, "alpha", "Alpha", undefined, [
+      ["t", "stream"],
+      ["auto_join"],
+    ]),
+  ];
+  const events: RelayEvent[] = listedFirst ? [...starter] : [];
+  const { owner, scope, navigator, visit } = workspace(
+    events,
+    viewer,
+    authority,
+  );
   if (routed)
     visit(
       {
@@ -686,14 +701,10 @@ async function starterConfirmedFirst(routed = false) {
   await vi.waitFor(() =>
     expect(owner.session.channels.list().status).toBe("ready"),
   );
-  events.push(
-    roster(authority, "alpha", [viewer.pubkey]),
-    metadata(authority, "alpha", "Alpha", undefined, [
-      ["t", "stream"],
-      ["auto_join"],
-    ]),
-  );
-  await act(() => owner.session.channels.resolve?.(["alpha"]));
+  if (!listedFirst) {
+    events.push(...starter);
+    await act(() => owner.session.channels.resolve?.(["alpha"]));
+  }
   const alpha = await screen.findByRole("textbox", { name: "Message #Alpha" });
   /** The welcome channel's hint, confirmed on a later read. Returns once the
    * page has rendered the confirmed list and run its effects, so the switch
@@ -715,7 +726,7 @@ async function starterConfirmedFirst(routed = false) {
     );
     await act(async () => {});
   };
-  return { alpha, navigator, confirmWelcome };
+  return { alpha, scope, navigator, visit, confirmWelcome };
 }
 
 /** The starter channel kept: shown, and its history entry untouched. */
@@ -737,6 +748,22 @@ it("opens a welcome channel confirmed after the starter channel it opened first"
   await screen.findByRole("textbox", { name: "Message #Beta" });
   expect(screen.getByRole("region", { name: "Welcome" })).toBeVisible();
   expect(screen.queryByRole("textbox", { name: "Message #Alpha" })).toBeNull();
+});
+
+it("opens a welcome channel that follows the starter channel across a routed visit's handoff", async () => {
+  // The starter channel is chosen while the routed visit is still pending.
+  const { scope, navigator, visit, confirmWelcome } =
+    await starterConfirmedFirst({ routed: true, listedFirst: true });
+  const entryId = navigator.snapshot().entry.id;
+  // Resolving the visit to it hands the route off: one commit without
+  // navigation, then the same history entry as a conversation.
+  visit();
+  visit(conversationTarget(scope, "alpha"), entryId);
+  await confirmWelcome();
+  expect(navigator.snapshot()).toMatchObject({
+    canGoBack: false,
+    entry: { target: { kind: "conversation", channelId: "beta" } },
+  });
 });
 
 it.each([
@@ -771,7 +798,9 @@ it.each([
 ])(
   "leaves Settings open over %s starter channel when the welcome channel follows",
   async (_, routed) => {
-    const { navigator, confirmWelcome } = await starterConfirmedFirst(routed);
+    const { navigator, confirmWelcome } = await starterConfirmedFirst({
+      routed,
+    });
     // Messages stays mounted with its visit behind Settings, as the host keeps it.
     void navigator.open({ version: 1, kind: "settings" });
     await confirmWelcome();

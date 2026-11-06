@@ -637,9 +637,12 @@ function ChannelWorkspace({
   useEffect(() => settleDefault, [settleDefault]);
   useLayoutEffect(() => {
     if (list.status === "ready") listed.current ??= Date.now();
+    // The route handoff briefly passes no navigation; only another visit
+    // settles the choice.
     if (
+      navigation &&
       provisional.current &&
-      provisional.current.entryId !== navigation?.entryId
+      provisional.current.entryId !== navigation.entryId
     )
       settleDefault();
     // An open draft resolves nothing; keep the choice for when it closes.
