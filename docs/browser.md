@@ -38,13 +38,17 @@ A view with a `storage` also keeps its session for ten minutes after it unmounts
 Reloading Buzz's main document ends the website session. An attachment queued before that reload cannot replace a session opened by the new document.
 
 Builderlab's bundled app panel passes a `builderlab` viewer lifetime instead of a
-shared website sign-in. The browser host uses its credential only for a native
-request to the compile-time Builderlab API origin, then installs the restricted
+shared website sign-in. The browser host names the native NIP-FI session (in live
+development, the broker) only for a native request to the build's Builderlab
+API, then installs the restricted
 HttpOnly/Secure viewer cookie on the tenant's fixed Apps domain with the server's
 absolute expiry. This is the same cookie as browser login, so login/consent repair
 replaces it instead of creating a conflicting second cookie.
 If the native exchange is unconfigured or its endpoint returns 404, the same
 account-isolated guest opens through browser login. Other errors stay closed.
+A 401 from the exchange also asks the sign-in adapter's session route once, as
+other granted calls do. Only when the adapter confirms the session ended does the
+shared NIP-FI session move to reauthentication required, so Settings matches.
 The guest stays blank until installation or this fallback finishes and its account lifetime is checked. No
 credential or generic cookie/header capability is exposed to the guest. Each
 account selects its own storage, kept across sign-ins and restarts so a browser

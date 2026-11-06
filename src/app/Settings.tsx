@@ -64,6 +64,7 @@ import { bundledIcons } from "../bundled/icons";
 import type { Identity } from "../features/identity/service";
 import { ProfileSettings } from "./ProfileSettings";
 import { IdentitySettings, keyActivity } from "./IdentitySettings";
+import { SecuritySettings } from "./SecuritySettings";
 import type { FederatedIdentity } from "../features/federated-identity/service";
 import { CommunityLocalSettings } from "./CommunityLocalSettings";
 
@@ -333,9 +334,6 @@ function PluginDetails({
     useState<HTMLSpanElement | null>(null);
   const toggle = useRef<HTMLButtonElement>(null);
   const [actionTarget, setActionTarget] = useState<HTMLDivElement | null>(null);
-  const [primaryActionTarget, setPrimaryActionTarget] =
-    useState<HTMLDivElement | null>(null);
-  const updateAvailable = initialUpdateAvailable;
   useLayoutEffect(() => {
     close.current?.focus({ preventScroll: true });
   }, [close]);
@@ -419,67 +417,54 @@ function PluginDetails({
           </span>
         )}
         <div className={styles.pluginPrimaryActions}>
-          <div
-            ref={setPrimaryActionTarget}
-            className={styles.pluginPrimaryAction}
-          >
+          <div className={styles.pluginPrimaryAction}>
             {/* Channels is required and has no enable/disable control. */}
-            {!updateAvailable &&
-              (plugin.manifest.id === "buzz.channels" ? (
-                <Button variant="outline" size="sm" disabled>
-                  Required
-                </Button>
-              ) : (
-                <Tooltip
-                  content={
-                    access === "error"
-                      ? "Could not check access. Try again."
+            {plugin.manifest.id === "buzz.channels" ? (
+              <Button variant="outline" size="sm" disabled>
+                Required
+              </Button>
+            ) : (
+              <Tooltip
+                content={
+                  access === "error"
+                    ? "Could not check access. Try again."
+                    : accessReason
+                }
+                {...(accessReason ? {} : { open: false })}
+                disableHoverablePopup
+              >
+                <Button
+                  variant={
+                    plugin.enabled
+                      ? "subtle"
                       : accessReason
+                        ? "outline"
+                        : "prominent"
                   }
-                  {...(accessReason ? {} : { open: false })}
-                  disableHoverablePopup
+                  size="sm"
+                  disabled={pluginToggleDisabled(plugin, access, busy)}
+                  loading={
+                    !plugin.enabled &&
+                    restrictedPlugin(plugin) &&
+                    access === "checking"
+                  }
+                  aria-describedby={
+                    accessReason ? "plugin-detail-access" : undefined
+                  }
+                  focusableWhenDisabled
+                  ref={toggle}
+                  onClick={onToggle}
                 >
-                  <Button
-                    variant={
-                      plugin.enabled
-                        ? "subtle"
-                        : accessReason
-                          ? "outline"
-                          : "prominent"
-                    }
-                    size="sm"
-                    disabled={pluginToggleDisabled(plugin, access, busy)}
-                    loading={
-                      !plugin.enabled &&
-                      restrictedPlugin(plugin) &&
-                      access === "checking"
-                    }
-                    aria-describedby={
-                      accessReason ? "plugin-detail-access" : undefined
-                    }
-                    focusableWhenDisabled
-                    ref={toggle}
-                    onClick={onToggle}
-                  >
-                    {pluginActionLabel(plugin, access)}
-                  </Button>
-                </Tooltip>
-              ))}
+                  {pluginActionLabel(plugin, access)}
+                </Button>
+              </Tooltip>
+            )}
           </div>
           <PluginMenu
             plugin={plugin}
             plugins={plugins}
             busy={busy}
             openUpdateSettings={openUpdateSettings}
-            {...(updateAvailable
-              ? {
-                  toggle: {
-                    label: pluginActionLabel(plugin, access),
-                    disabled: pluginToggleDisabled(plugin, access, busy),
-                    run: onToggle,
-                  },
-                }
-              : {})}
           />
         </div>
         <div ref={setActionTarget} className={styles.pluginExtraActions} />
@@ -517,7 +502,7 @@ function PluginDetails({
         <PluginImport
           key={`${plugin.revision}:${JSON.stringify(plugin.updateSource)}`}
           initialUpdateAvailable={initialUpdateAvailable}
-          actionTarget={updateAvailable ? primaryActionTarget : actionTarget}
+          actionTarget={actionTarget}
           onUpdateAvailableChange={onUpdateAvailableChange}
           reviewRequested={reviewRequested}
           onReviewHandled={onReviewHandled}
@@ -1372,10 +1357,12 @@ export function Settings({
             viewer={client.viewer}
             identity={identity}
             federatedIdentity={federatedIdentity}
+            memberships={client.memberships}
             builderlabIdentity={builderlabIdentity}
             lastActive={lastActive}
           />
         )}
+        {selected === "security" && <SecuritySettings />}
         {developerMode && (
           <div hidden={selected !== "developer"}>
             <DeveloperSettings relay={communities.relay} />

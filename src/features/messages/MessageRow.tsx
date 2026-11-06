@@ -13,8 +13,13 @@ import {
 } from "../conversation/typing-presentation";
 import { breathing, localActivity } from "../agents/local-activity";
 import { Avatar } from "../../shared/design-system/ui/Avatar";
-import { LightningIcon, RobotIcon } from "../../shared/design-system/icons";
+import {
+  DotsThreeIcon,
+  LightningIcon,
+  RobotIcon,
+} from "../../shared/design-system/icons";
 import { useProfileOwner } from "../profiles/useProfileOwner";
+import { RemoteAgentHint, RemoteWorkIcon } from "./RemoteAgentHint";
 import { messagePreviewText } from "../conversation/message-preview-text";
 import { profileMentionParts } from "./profile-mentions";
 import { addressedMessage } from "./audience-address";
@@ -34,6 +39,7 @@ import { Button } from "../../shared/design-system/ui/Button";
 import { ReplySummary } from "./ReplySummary";
 import { usePresenceStatus } from "../presence/react";
 import { UserStatusDisplay } from "../user-status/StatusDisplay";
+import { useMessageDensity } from "../../shared/theme/message-density";
 import { IconButton } from "../../shared/design-system/ui/IconButton";
 import {
   memo,
@@ -217,6 +223,8 @@ function MessageRowContent({
   agentPubkeys,
 }: MessageContentProps) {
   const [avatarFocused, setAvatarFocused] = useState(false);
+  // Compact is a flat list: everyone's rows start at the left, with no own surface.
+  const flat = useMessageDensity() === "compact";
   const resolveName = useChannelIdentityNames(references, row.channelId);
   const directory = useReferenceDirectory(references, participantProfiles);
   const reactions = row.reactions;
@@ -339,7 +347,7 @@ function MessageRowContent({
     session,
     agentAuthor && !stackPrevious ? row.authorId : undefined,
   );
-  // The viewer's own agents carry only the agent mark.
+  // The viewer's own agents do not need an owner attribution.
   const ownerLabel =
     owner &&
     owner.id !== viewer &&
@@ -367,7 +375,11 @@ function MessageRowContent({
     row.attachments.every((attachment) => !!safeMessageUrl(attachment.url));
   // Own-message surface colours apply to a bubble, never to a shown thread root.
   const ownBubble =
-    !shownRow && !row.workflowOwnerId && !!viewer && row.authorId === viewer;
+    !flat &&
+    !shownRow &&
+    !row.workflowOwnerId &&
+    !!viewer &&
+    row.authorId === viewer;
   const emojiOnly = usesLargeEmojiPresentation(displayRow.content, row.emoji);
   const canReact = !!(
     extensions &&
@@ -399,9 +411,18 @@ function MessageRowContent({
       })
     : [];
   // The instance, not its key: a reinstalled plugin must not reopen a dialog.
-  const [openAction, setOpenAction] = useState<(typeof actions)[number]>();
+  const [openAction, setOpenAction] = useState<{
+    action: (typeof actions)[number];
+    session: RelaySession;
+    messageId: string;
+  }>();
   const opened =
-    openAction && actions.includes(openAction) ? openAction : undefined;
+    openAction &&
+    openAction.session === session &&
+    openAction.messageId === row.id &&
+    actions.includes(openAction.action)
+      ? openAction.action
+      : undefined;
   useEffect(() => {
     if (openAction && !opened) setOpenAction(undefined);
   }, [openAction, opened]);
@@ -437,33 +458,53 @@ function MessageRowContent({
       </MenuItem>
     </>
   );
-  const actionItems = actions.map((action) =>
-    action.placement === "menu" && session && extensions?.actions ? (
-      <ContributionBoundary key={contributionKey(action)} fallback={null}>
-        <WithTargetOpener
-          component={action.component}
-          props={{
-            message: row,
-            session,
-            close: () => setOpenAction(undefined),
-          }}
-          registry={extensions.actions}
-          entry={action}
-        />
-      </ContributionBoundary>
-    ) : (
-      <MenuItem key={action.key} onClick={() => setOpenAction(action)}>
-        {action.icon && (
-          <MenuIcon>
-            <ContributionBoundary key={contributionKey(action)} fallback={null}>
-              <action.icon />
-            </ContributionBoundary>
-          </MenuIcon>
-        )}
-        {action.title}
-      </MenuItem>
-    ),
-  );
+  const activateAction = (action: (typeof actions)[number]) => {
+    if (
+      !session ||
+      !active ||
+      !extensions?.actions?.snapshot().includes(action)
+    )
+      return;
+    try {
+      if (action.matches(row, session))
+        setOpenAction({ action, session, messageId: row.id });
+    } catch {
+      // A failed matcher makes this action unavailable.
+    }
+  };
+  const actionItems = (contextMenu: boolean) =>
+    actions
+      .filter((action) => action.placement !== "toolbar" || contextMenu)
+      .map((action) =>
+        action.placement === "menu" && session && extensions?.actions ? (
+          <ContributionBoundary key={contributionKey(action)} fallback={null}>
+            <WithTargetOpener
+              component={action.component}
+              props={{
+                message: row,
+                session,
+                close: () => setOpenAction(undefined),
+              }}
+              registry={extensions.actions}
+              entry={action}
+            />
+          </ContributionBoundary>
+        ) : (
+          <MenuItem key={action.key} onClick={() => activateAction(action)}>
+            {action.icon && (
+              <MenuIcon>
+                <ContributionBoundary
+                  key={contributionKey(action)}
+                  fallback={null}
+                >
+                  <action.icon />
+                </ContributionBoundary>
+              </MenuIcon>
+            )}
+            {action.title}
+          </MenuItem>
+        ),
+      );
   // A message renderer may draw some attachments itself. Its claims count only
   // while its card is mounted, and they return to the host list while its
   // fallback shows. A remounted card starts healthy and claims again.
@@ -683,6 +724,33 @@ function MessageRowContent({
       copyText={() =>
         messageCopyText(row, directory.profiles, directory.agents)
       }
+      toolbarItems={actions
+        .filter((action) => action.placement === "toolbar")
+        .map((action) => (
+          <IconButton
+            key={contributionKey(action)}
+            hint="helpful"
+            title={action.title}
+            aria-label={action.title}
+            size="sm"
+            icon={
+              action.icon ? (
+                <ContributionBoundary
+                  key={contributionKey(action)}
+                  fallback={null}
+                >
+                  <action.icon />
+                </ContributionBoundary>
+              ) : (
+                <DotsThreeIcon />
+              )
+            }
+            onClick={(event) => {
+              event.currentTarget.focus({ preventScroll: true });
+              activateAction(action);
+            }}
+          />
+        ))}
       quickControls={
         <>
           {stackPrevious && showTime && (
@@ -722,7 +790,7 @@ function MessageRowContent({
             (session ? (
               <MessageManagementItems row={row} session={session} />
             ) : undefined)}
-          {actionItems}
+          {actionItems(!!target)}
           {activityItem}
           {reportItem}
         </>
@@ -931,7 +999,10 @@ function MessageRowContent({
         data-stack-previous={stackPrevious || undefined}
         data-stack-next={stackNext || undefined}
         data-viewer-message={
-          alignViewer && !row.workflowOwnerId && row.authorId === viewer
+          !flat &&
+          alignViewer &&
+          !row.workflowOwnerId &&
+          row.authorId === viewer
             ? ""
             : undefined
         }
@@ -952,9 +1023,11 @@ function MessageRowContent({
             }
           >
             {/* A live append must not remove the reader's current focus target. */}
-            {!renderMessage && (!stackNext || avatarFocused) && (
-              <div className={styles.messageAvatar}>{avatar}</div>
-            )}
+            {/* Bubbles end a group with its avatar; a flat list starts with it. */}
+            {!renderMessage &&
+              (!(flat ? stackPrevious : stackNext) || avatarFocused) && (
+                <div className={styles.messageAvatar}>{avatar}</div>
+              )}
             <div className={styles.messageHeader}>
               {!row.membership &&
                 !row.huddle &&
@@ -1023,6 +1096,13 @@ function MessageRowContent({
                       />
                     )}
                   </span>
+                )}
+                {agentAuthor && !stackPrevious && (
+                  <RemoteAgentHint
+                    session={session}
+                    viewer={viewer}
+                    pubkey={row.authorId}
+                  />
                 )}
                 {ownerLabel && (
                   <span className={styles.authorOwner}>
@@ -1463,6 +1543,7 @@ export const MessageRow = memo(function AudienceMessageRow(
 
 function AgentsMessageRow(props: MessageRowProps) {
   const { row, session, media, participantProfiles, agentPubkeys } = props;
+  const flat = useMessageDensity() === "compact";
   const references = props.references ?? session;
   const [open, setOpen] = useState(false);
   const activity = props.recordedActivity;
@@ -1553,6 +1634,7 @@ function AgentsMessageRow(props: MessageRowProps) {
           data-stack-previous={props.stackPrevious || undefined}
           data-stack-next={props.stackNext || undefined}
           data-viewer-message={
+            !flat &&
             (props.alignViewer ?? true) &&
             !row.workflowOwnerId &&
             row.authorId === (props.viewer ?? session?.viewer)
@@ -1594,6 +1676,14 @@ function AgentsMessageRow(props: MessageRowProps) {
               aria-label={`${author.name}${to.length ? ` to ${to.map((who) => who.name).join(", ")}` : ""}: ${preview}${row.edited ? " (edited)" : ""}`}
             >
               {!bubble && avatar(author)}
+              {!open && (
+                <RemoteWorkIcon
+                  session={session}
+                  viewer={props.viewer ?? session?.viewer}
+                  pubkey={row.authorId}
+                  active={active}
+                />
+              )}
               {open && bubble && "Collapse"}
               {!open && (
                 <span className={styles.audiencePreviewText}>
@@ -1621,6 +1711,13 @@ function AgentsMessageRow(props: MessageRowProps) {
       {props.day && <DayDivider createdAt={row.createdAt} />}
       <AgentResponsePreview
         name={author.name}
+        bylineHint={
+          <RemoteAgentHint
+            session={session}
+            viewer={props.viewer ?? session?.viewer}
+            pubkey={author.pubkey}
+          />
+        }
         participants={[
           {
             id: author.pubkey,
