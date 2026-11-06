@@ -1,6 +1,10 @@
 import { profileTarget } from "../../features/profiles/target";
 import { expect, it } from "vitest";
-import { mentionQuery, matchesMentionQuery } from "./mention-query";
+import {
+  mentionQuery,
+  matchesMentionQuery,
+  pendingMentionQuery,
+} from "./mention-query";
 import { mentionConformance } from "./mention-rules.conformance";
 
 it("opens at word/open-bracket boundaries without treating email/URLs as mentions", () => {
@@ -58,6 +62,14 @@ it("only continues spaces for known multi-word names; completion does not bind i
   expect(matchesMentionQuery("Unknown", [])).toBe(true);
 });
 
+it("holds only a name still being typed: trailing punctuation or a closing quote is prose", () => {
+  for (const query of ["Honey", "Pat O'Brien", "Wes’s Honey"])
+    expect(pendingMentionQuery(query), query).toBe(true);
+  for (const query of ["", "Honey ", "Honey,", "Honey)", "Honey]"])
+    expect(pendingMentionQuery(query), query).toBe(false);
+  for (const query of ["Honey'", "Honey’", 'Honey"', "Honey”"])
+    expect(pendingMentionQuery(query), query).toBe(false);
+});
 it.each(mentionConformance.query)(
   "conforms to the portable query contract: $name",
   (fixture) => {

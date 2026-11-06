@@ -209,7 +209,10 @@ revokes all of them, and a pairing unused for 30 days expires.
   Solo chats can also be shared with other people; do not describe every Solo
   chat as visible only to its creator.
 - **Team** contains community channels and their threads. Use the **@** picker
-  to address a channel member. Typing a name alone does not guarantee a
+  to address a channel member. A full name typed after **@** and followed by
+  Space or closing punctuation, such as `,`, `.` or `'`, selects that person or
+  agent unless a namesake or a longer name that begins the same way could be
+  meant; then pick from the list. Typing a name alone does not guarantee a
   notification. Selecting someone outside the channel does not grant access;
   inviting them requires an explicit decision from someone with permission.
 - **Workspaces** group Solo chats and provide starting folders and instructions.
