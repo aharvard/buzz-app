@@ -1,4 +1,5 @@
 import { soloNavigationFor } from "../../features/channel-navigation/solo-navigation";
+import { DraftsSentNavigation } from "../../features/drafts-sent/DraftsSentNavigation";
 import {
   useEffect,
   useLayoutEffect,
@@ -171,9 +172,11 @@ function ScopedSidebar({
     ? target.kind === "conversation"
       ? listedDestination
       : target.kind === "page" && target.pluginId === "buzz.channels"
-        ? soloDraft(target.route?.params)
-          ? "solo"
-          : "team"
+        ? target.route?.params === "drafts-sent"
+          ? undefined
+          : soloDraft(target.route?.params)
+            ? "solo"
+            : "team"
         : undefined
     : undefined;
   const location = destination ? targetKey(target) : undefined;
@@ -234,8 +237,15 @@ function ScopedSidebar({
         </div>
         {props.creationAction}
       </div>
-      {props.children && !restriction && (
-        <div className={styles.destinations}>{props.children}</div>
+      {!restriction && (
+        <div className={styles.destinations}>
+          <DraftsSentNavigation
+            relay={props.relay}
+            navigator={props.navigator}
+            target={target}
+          />
+          {props.children}
+        </div>
       )}
     </>
   );

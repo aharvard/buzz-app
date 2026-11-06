@@ -454,7 +454,11 @@ revokes all of them, and a pairing unused for 30 days expires.
   approval, Buzz opens the approval page in your default browser, where you
   are signed in to Builderlab. Approve it there, return to Buzz and click
   **Reload** to open the app.
-- **Drafts & sent** lists the messages you started but did not send, newest
+- **Drafts & sent** is part of Messages. Opening it keeps the conversation
+  sidebar available, so you can switch straight back to a chat. Use the **Drafts**
+  and **Sent** tabs to switch lists; Buzz remembers your choice for this community.
+  Rows use Activity’s message layout, with recipient identities in Sent. It lists
+  the messages you started but did not send, newest
   change first, with the number of drafts shown beside it in the Messages
   sidebar, and your latest 100 sent messages in this community, grouped by
   day. A sent message shows who replied after you ("2 after you") or that you

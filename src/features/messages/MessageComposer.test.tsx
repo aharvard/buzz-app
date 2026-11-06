@@ -83,7 +83,7 @@ import type {
   Profile,
 } from "../relay/contracts";
 import { readView, viewRevision, writeView } from "../../shared/view-state";
-import { clearDraft } from "../../bundled/drafts-sent/drafts";
+import { clearDraft } from "../drafts-sent/drafts";
 import { followupDraft } from "./mention-draft";
 import { emojiMatches, type CustomEmoji } from "../relay/emoji";
 import { CustomEmoji as CustomEmojiImage } from "../../bundled/emoji/CustomEmoji";
