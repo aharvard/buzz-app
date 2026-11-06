@@ -1,3 +1,13 @@
+.attention-empty-frame {
+  position: relative;
+  overflow: clip;
+  border-radius: var(--radius-container);
+}
+.attention-empty-bounds {
+  position: absolute;
+  inset: var(--space-4);
+  pointer-events: none;
+}
 /* Three quiet message prompts, with stable artwork geometry. */
 .attention-empty-preview {
   inline-size: 28rem;

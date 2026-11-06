@@ -12,9 +12,14 @@ const tilts = [-4, 3, -2];
 
 export function AttentionEmptyState({ name }: { name: string }) {
   const reduced = useReducedMotion();
-  const container = useRef<HTMLElement>(null);
+  const container = useRef<HTMLDivElement>(null);
   return (
-    <section ref={container} aria-label="Start watching">
+    <section className="attention-empty-frame" aria-label="Start watching">
+      <div
+        ref={container}
+        className="attention-empty-bounds"
+        aria-hidden="true"
+      />
       <EmptyState
         icon={null}
         title={`Give ${name} something to keep an eye on.`}
@@ -32,7 +37,7 @@ export function AttentionEmptyState({ name }: { name: string }) {
                   drag
                   dragConstraints={container}
                   dragMomentum={!reduced}
-                  dragElastic={reduced ? 0 : 0.15}
+                  dragElastic={0}
                   dragTransition={{ bounceStiffness: 100, bounceDamping: 10 }}
                   whileDrag={{ zIndex: 2 }}
                 >

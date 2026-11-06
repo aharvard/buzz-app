@@ -286,4 +286,28 @@ test("empty Attention retains its card and clustered prompts in the profile host
     );
     await page.screenshot({ path: testInfo.outputPath(`empty-${width}.png`) });
   }
+  // A pointer held beyond the card must not pull the tilted bubble outside it.
+  const bubble = empty.locator(".attention-empty-bubble").first();
+  const start = await bubble.boundingBox();
+  const frame = await empty.boundingBox();
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+  await page.mouse.down();
+  try {
+    for (const [x, y] of [
+      [frame.x + frame.width + 200, frame.y + frame.height + 200],
+      [frame.x - 200, frame.y - 200],
+    ]) {
+      await page.mouse.move(x, y, { steps: 8 });
+      await expect(async () => {
+        const box = await bubble.boundingBox();
+        expect(Math.abs(box.x - start.x)).toBeGreaterThan(40);
+        expect(box.x).toBeGreaterThanOrEqual(frame.x);
+        expect(box.y).toBeGreaterThanOrEqual(frame.y);
+        expect(box.x + box.width).toBeLessThanOrEqual(frame.x + frame.width);
+        expect(box.y + box.height).toBeLessThanOrEqual(frame.y + frame.height);
+      }).toPass({ timeout: 1000 });
+    }
+  } finally {
+    await page.mouse.up();
+  }
 });
