@@ -46,6 +46,7 @@ it.each(["bottom", "side"] as const)(
     };
     const available = [panel];
     const panels: Panels = {
+      ui: { Workspace: () => null, useSplit: vi.fn(), useTabTitle: vi.fn() },
       snapshot: () => available,
       subscribe: () => () => {},
       register: () => {},
@@ -137,6 +138,7 @@ it("opens the host member picker only while the launcher binding is current", as
   } satisfies RegisteredPanel;
   const available = [panel];
   const panels: Panels = {
+    ui: { Workspace: () => null, useSplit: vi.fn(), useTabTitle: vi.fn() },
     snapshot: () => available,
     subscribe: () => () => {},
     register: () => {},
@@ -215,6 +217,7 @@ it.each(["bottom", "side"] as const)(
     };
     const available = [panel];
     const panels: Panels = {
+      ui: { Workspace: () => null, useSplit: vi.fn(), useTabTitle: vi.fn() },
       snapshot: () => available,
       subscribe: () => () => {},
       register: () => {},
@@ -271,6 +274,7 @@ it("keeps the huddle last, with the linked PR just before it, regardless of regi
     channelLauncher: () => <button type="button">{key}</button>,
   }));
   const panels: Panels = {
+    ui: { Workspace: () => null, useSplit: vi.fn(), useTabTitle: vi.fn() },
     snapshot: () => available,
     subscribe: () => () => {},
     register: () => {},
