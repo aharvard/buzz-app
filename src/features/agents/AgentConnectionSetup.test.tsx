@@ -100,7 +100,18 @@ it("connects the exact identity with reviewed defaults and retains errors for re
 });
 
 /** An offline agent the viewer owns, mentioned by the viewer in a shared channel. */
-async function ownedAgentChannel(channelType: "dm" | "stream" | "forum") {
+async function ownedAgentChannel(
+  channelType: "dm" | "stream" | "forum",
+  {
+    choicesReady = false,
+    listed = false,
+  }: {
+    /** Agent choices are complete and none covers the agent yet. */
+    choicesReady?: boolean;
+    /** The channel list carries the channel, so its roster updates live. */
+    listed?: boolean;
+  } = {},
+) {
   const { schnorr } = await import("@noble/curves/secp256k1.js");
   const { bytesToHex } = await import("nostr-tools/utils");
   const secret = new Uint8Array(32);
@@ -126,9 +137,16 @@ async function ownedAgentChannel(channelType: "dm" | "stream" | "forum") {
     ],
   };
   const view = { status: "ready", events: [profile] };
+  const channel = {
+    id: channelType,
+    name: "Helper",
+    channelType,
+    members: [viewer, candidate.pubkey],
+    viewerRole: "member",
+  } as ChannelSummary;
   const state = {
     choices: {
-      complete: false,
+      complete: choicesReady,
       identities: [],
       archives: { status: "ready", archived: [] },
     } as {
@@ -137,17 +155,26 @@ async function ownedAgentChannel(channelType: "dm" | "stream" | "forum") {
       identities: { pubkey: string; managed: boolean; messageable: boolean }[];
     },
     presence: "offline",
-    list: { status: "ready", channels: [] as ChannelSummary[] },
+    list: { status: "ready", channels: listed ? [channel] : [] },
   };
   const profiles = new Map([
     [candidate.pubkey, { name: candidate.name, isAgent: true }],
   ]);
-  const listeners = new Set<() => void>();
-  const subscribe = (listener: () => void) => {
-    listeners.add(listener);
+  type Store = keyof typeof state;
+  const listeners: Record<Store, Set<() => void>> = {
+    choices: new Set(),
+    presence: new Set(),
+    list: new Set(),
+  };
+  const subscribe = (store: Store) => (listener: () => void) => {
+    listeners[store].add(listener);
     return () => {
-      listeners.delete(listener);
+      listeners[store].delete(listener);
     };
+  };
+  /** Tells only `store`'s subscribers that its `state` entry changed. */
+  const notify = (store: Store) => {
+    for (const listener of [...listeners[store]]) listener();
   };
   const noop = () => () => {};
   const reply = vi.fn();
@@ -181,12 +208,16 @@ async function ownedAgentChannel(channelType: "dm" | "stream" | "forum") {
       snapshot: () => profiles,
       event: () => profile,
     },
-    agentChoices: { subscribe, snapshot: () => state.choices },
+    agentChoices: {
+      subscribe: subscribe("choices"),
+      snapshot: () => state.choices,
+    },
     presence: {
       status: () => state.presence,
-      subscribe: (_key: string, listener: () => void) => subscribe(listener),
+      subscribe: (_key: string, listener: () => void) =>
+        subscribe("presence")(listener),
     },
-    channels: { subscribeList: subscribe, list: () => state.list },
+    channels: { subscribeList: subscribe("list"), list: () => state.list },
   } as unknown as import("../relay/session").RelaySession;
   const types = [type];
   const snapshot = {};
@@ -206,13 +237,6 @@ async function ownedAgentChannel(channelType: "dm" | "stream" | "forum") {
     find: () => undefined,
     portable,
   } as unknown as Agents;
-  const channel = {
-    id: "dm",
-    name: "Helper",
-    channelType,
-    members: [viewer, candidate.pubkey],
-    viewerRole: "member",
-  } as ChannelSummary;
   const { AgentConnectionSetup } = await import("./AgentConnectionSetup");
   const { AgentsContext } = await import("./react");
   const setup = (sessionValue = session, channelValue = channel) => (
@@ -267,7 +291,7 @@ async function ownedAgentChannel(channelType: "dm" | "stream" | "forum") {
   return {
     viewer,
     state,
-    listeners,
+    notify,
     reply,
     observe,
     session,
@@ -286,7 +310,7 @@ it.each(["dm", "stream", "forum"] as const)(
     const {
       viewer,
       state,
-      listeners,
+      notify,
       reply,
       observe,
       session,
@@ -325,7 +349,7 @@ it.each(["dm", "stream", "forum"] as const)(
           { pubkey: candidate.pubkey, managed: false, messageable: true },
         ],
       };
-      for (const listener of [...listeners]) listener();
+      notify("choices");
     });
     expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
     act(() => {
@@ -334,7 +358,7 @@ it.each(["dm", "stream", "forum"] as const)(
         identities: [],
         archives: { status: "ready", archived: [candidate.pubkey] },
       };
-      for (const listener of [...listeners]) listener();
+      notify("choices");
     });
     expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
     act(() => {
@@ -342,7 +366,7 @@ it.each(["dm", "stream", "forum"] as const)(
         ...state.choices,
         archives: { status: "ready", archived: [] },
       };
-      for (const listener of [...listeners]) listener();
+      notify("choices");
     });
     expect(
       await screen.findByRole("heading", { name: /^Connect / }),
@@ -398,7 +422,7 @@ it.each(["dm", "stream", "forum"] as const)(
     );
     act(() => {
       state.presence = "online";
-      for (const listener of [...listeners]) listener();
+      notify("presence");
     });
     expect(screen.queryByRole("heading", { name: /^Connect / })).toBeNull();
     expect(await screen.findByRole("dialog")).toHaveTextContent(
@@ -407,7 +431,7 @@ it.each(["dm", "stream", "forum"] as const)(
     if (channelType !== "dm") {
       act(() => {
         state.presence = "offline";
-        for (const listener of [...listeners]) listener();
+        notify("presence");
       });
       await user.click(await screen.findByRole("button", { name: "Connect" }));
       await screen.findByRole("button", { name: "Ask Helper to respond" });
@@ -430,8 +454,7 @@ it.each(["dm", "stream", "forum"] as const)(
 it.each(["stream", "forum"] as const)(
   "offers no %s setup for a mentioned agent outside the channel roster",
   async (channelType) => {
-    const f = await ownedAgentChannel(channelType);
-    f.state.choices = { ...f.state.choices, complete: true };
+    const f = await ownedAgentChannel(channelType, { choicesReady: true });
     render(f.setup(f.session, { ...f.channel, members: [f.viewer] }));
     f.deliverMention();
     // A mounted candidate observes owner evidence on mount, inside the delivery's act.
@@ -446,8 +469,7 @@ it.each(["stream", "forum"] as const)(
 it.each(["stream", "forum"] as const)(
   "withdraws %s setup when a render drops the agent from the roster",
   async (channelType) => {
-    const f = await ownedAgentChannel(channelType);
-    f.state.choices = { ...f.state.choices, complete: true };
+    const f = await ownedAgentChannel(channelType, { choicesReady: true });
     const mounted = render(f.setup());
     f.deliverMention();
     await screen.findByRole("region", { name: "Agent connection setup" });
@@ -458,21 +480,34 @@ it.each(["stream", "forum"] as const)(
   },
 );
 
-it.each(["stream", "forum"] as const)(
-  "withdraws %s setup on a live roster update without a parent render",
-  async (channelType) => {
-    const f = await ownedAgentChannel(channelType);
-    f.state.choices = { ...f.state.choices, complete: true };
-    f.state.list = { status: "ready", channels: [f.channel] };
+// The viewer case keeps the agent listed, so only a viewer check that reads the
+// live roster withdraws the card.
+it.each([
+  ["stream", "agent"],
+  ["forum", "agent"],
+  ["stream", "viewer"],
+  ["forum", "viewer"],
+] as const)(
+  "withdraws %s setup when a live roster update drops the %s, without a parent render",
+  async (channelType, dropped) => {
+    const f = await ownedAgentChannel(channelType, {
+      choicesReady: true,
+      listed: true,
+    });
     render(f.setup());
     f.deliverMention();
     await screen.findByRole("region", { name: "Agent connection setup" });
     act(() => {
       f.state.list = {
         status: "ready",
-        channels: [{ ...f.channel, members: [f.viewer] }],
+        channels: [
+          {
+            ...f.channel,
+            members: [dropped === "agent" ? f.viewer : candidate.pubkey],
+          },
+        ],
       };
-      for (const listener of [...f.listeners]) listener();
+      f.notify("list");
     });
     expect(
       screen.queryByRole("region", { name: "Agent connection setup" }),
