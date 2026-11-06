@@ -788,8 +788,9 @@ The host retains recipient intent, inline editing and avatar removal even if the
 chooser is unavailable because activation failed.
 The picker shows keys alongside names (namesakes remain separate), reads optional
 profiles only on demand, and keeps selected identity spans in scoped drafts.
-Typing a name alone does not notify anyone. Plain Space after a unique exact name
-selects its recipient; ambiguous names require Tab, Enter or click. While the
+Typing a name alone does not notify anyone. Plain Space or closing punctuation
+after a unique exact name selects its recipient; ambiguous names require Tab,
+Enter or click. While the
 chooser is still waiting on members, names, agents or a directory search, Space
 holds the name as a pending chip (a spinner in place of its `@`) and applies the
 same rule once the evidence arrives, within 8 s, or returns it to prose; sending
@@ -884,8 +885,11 @@ recipients among the destination's members plus the draft recipients.
 
 Plain Space selects only a unique exact name/alias/label across the full uncapped
 candidate set, and only if that identity is displayed and still eligible. A known
-longer name beginning with that name plus a space prevents selection, unless it is
-another name of that same identity. Partial names, ambiguous names, modified Space,
+longer name that continues the query, with any separator, prevents selection,
+unless it is another name of that same identity. Closing punctuation (`, . ! ? ; : )`
+and `' ’ " ”`) selects under the same rule and stays after the mention
+([mentions README §5](../src/bundled/mentions/README.md#5-space-or-closing-punctuation-selects-only-an-exact-unique-name)).
+Partial names, ambiguous names, modified Space,
 IME composition, code and protected literal ranges keep ordinary editing behavior. Selection rechecks available evidence and
 stores only `{pubkey, name}`; qualifiers are presentation, not wire data. A Space
 the chooser cannot decide yet, because its evidence is still loading, holds the

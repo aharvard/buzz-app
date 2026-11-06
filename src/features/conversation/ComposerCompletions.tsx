@@ -442,10 +442,12 @@ function OwnedCompletion({
         current.current.editor.invalidate();
         return true;
       }
-      if (event.ctrlKey || event.metaKey) return false;
-      // Shift types ":" and closing punctuation on common layouts, and Option
-      // types curly quotes on a Mac; other modified keys, Space included, keep
-      // editing.
+      // Option types curly quotes and, on some Mac layouts, other closing
+      // punctuation, so it may close a mention; elsewhere it keeps editing.
+      if (event.ctrlKey || event.metaKey || (event.altKey && !mention))
+        return false;
+      // Shift types ":" and closing punctuation on common layouts; other
+      // modified keys, Space included, keep editing.
       if (
         (event.shiftKey || event.altKey) &&
         (event.key === " " || !terminates(event.key))

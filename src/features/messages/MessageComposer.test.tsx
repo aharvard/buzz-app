@@ -7453,6 +7453,20 @@ it("keeps the typed colon after a partial shortcode and never accepts emoji on S
   expect(h.input()).toHaveValue("hello :-1");
 });
 
+// Option may close a mention, never a shortcode.
+it.each([{ altKey: true }, { altKey: true, shiftKey: true }])(
+  "leaves an Option colon to the editor after an exact shortcode: %j",
+  async (keys) => {
+    const h = mountEmojiTypeahead();
+    h.fill("hello :-1");
+    await screen.findByRole("option", { name: ":-1:" });
+    expect(fireEvent.keyDown(h.input(), { key: ":", ...keys })).toBe(true);
+    expect(h.input()).toHaveValue("hello :-1");
+    expect(colon(h.input())).toBe(false);
+    expect(h.input()).toHaveValue("hello 👎");
+  },
+);
+
 it.each(["at 10:30"])(
   "leaves the colon in times and URLs alone: %s",
   (typed) => {
