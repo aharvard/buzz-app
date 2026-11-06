@@ -1434,6 +1434,8 @@ use the publisher's slug mapping only when local definitions do not collide. Loc
 names and artwork win for matching keys. A failed source leaves the other source
 visible with a warning. Reads are lazy (once per demand or Refresh), with no polling
 or relay-directory startup scan.
+Relay inventory uses foreground read capacity because Solo needs complete
+inventory to restore its recipients; it keeps the normal ten-second deadline.
 
 Discovery is not global coverage, verified membership, credentials, or execution
 status. No keys, config, memory, membership, or runtime state are changed by it.
