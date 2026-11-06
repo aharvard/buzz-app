@@ -1233,9 +1233,13 @@ it("does not announce conversation enrichment over retained search choices", () 
   }
 });
 
-it.each(["stream", "forum", "solo"] as const)(
-  "finds joined archived %s channels by name without putting them in Recent activity",
-  async (channelType) => {
+it.each(
+  (["stream", "forum", "solo"] as const).flatMap((channelType) =>
+    (["live", "saved"] as const).map((source) => ({ channelType, source })),
+  ),
+)(
+  "finds joined archived $channelType channels by name in a $source session without putting them in Recent activity",
+  async ({ channelType, source }) => {
     const relay = keypair(),
       viewer = keypair();
     const wire = scriptedTransport(viewer.pubkey, relay.pubkey);
@@ -1256,14 +1260,41 @@ it.each(["stream", "forum", "solo"] as const)(
       metadata(relay, "active", "Current project"),
       roster(relay, "active", [viewer.pubkey]),
     ];
-    const owner = createRelaySession({
-      ...wire.transport,
-      async query(filters) {
-        return discovery.filter((event) =>
-          filters.some((filter) => filter.kinds?.includes(event.kind)),
-        );
+    const saved = source === "saved";
+    const owner = createRelaySession(
+      {
+        ...wire.transport,
+        async query(filters) {
+          // A saved session's relay reads fail.
+          if (saved) throw new Error("Relay unavailable");
+          return discovery.filter((event) =>
+            filters.some((filter) => filter.kinds?.includes(event.kind)),
+          );
+        },
       },
-    });
+      saved
+        ? {
+            cachedOnly: true,
+            prepared: true,
+            persistence: {
+              readStartup: async () => ({
+                discovery: {
+                  savedAt: Date.now(),
+                  relayAuthor: relay.pubkey,
+                  events: discovery,
+                },
+              }),
+              read: async () => [],
+              write: async () => {},
+              remove: async () => {},
+              retain: async () => {},
+              clear: async () => {},
+              close() {},
+            },
+          }
+        : undefined,
+    );
+    if (saved) await owner.restore();
     const open = vi.fn();
     const props = {
       session: owner.session,
@@ -1271,13 +1302,18 @@ it.each(["stream", "forum", "solo"] as const)(
       input: createRef<HTMLInputElement>(),
       pages: [],
       openConversation: open,
+      offline: saved ? (
+        <p>Only saved conversations are searched.</p>
+      ) : undefined,
     };
     try {
       const mounted = render(<SearchResults {...props} query="" />);
       await screen.findByRole("option", { name: /Current project/ });
-      expect(owner.session.channels.get?.("archive")?.channelType).toBe(
-        channelType,
-      );
+      const archived = owner.session.channels.get?.("archive");
+      expect(archived?.channelType).toBe(channelType);
+      // Restoration marks the saved member row read-only.
+      expect(!!archived?.readOnly).toBe(saved);
+      expect(!!archived?.cached).toBe(saved);
       expect(screen.queryByRole("option", { name: /Past project/ })).toBeNull();
       mounted.rerender(<SearchResults {...props} query="Past" />);
       fireEvent.click(
@@ -1305,8 +1341,10 @@ it.each([
   { channelType: "forum", readOnly: true },
   { channelType: "solo", readOnly: true },
   { channelType: "dm" },
+  { channelType: "dm", readOnly: true, cached: true },
+  { channelType: "stream", readOnly: true, cached: true, viewerRole: "guest" },
 ] as const)(
-  "does not surface archived nonmember or non-channel destinations: %j",
+  "does not surface archived nonmember, guest or non-channel destinations: %j",
   (state) => {
     const owner = createRelaySession(null);
     const snapshot = {

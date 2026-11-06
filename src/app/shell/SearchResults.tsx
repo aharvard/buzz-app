@@ -233,7 +233,10 @@ export function SearchResults({
           !channel.huddle &&
           !channel.metadataPending &&
           (!channel.archived ||
-            (!channel.readOnly &&
+            // A saved member row stays read-only until the relay confirms it.
+            // A guest's archived row stays out, as it does live.
+            ((!channel.readOnly ||
+              (channel.cached && channel.viewerRole !== "guest")) &&
               (channel.channelType === "stream" ||
                 channel.channelType === "forum" ||
                 channel.channelType === "solo"))) &&
