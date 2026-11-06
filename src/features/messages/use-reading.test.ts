@@ -168,6 +168,16 @@ function setup({
         rootId,
         enabled,
       }),
+    setLatest: (id: string) =>
+      view.rerender({
+        session,
+        channelId: "room",
+        scroller,
+        settled: position,
+        latestMessageId: id,
+        rootId,
+        enabled,
+      }),
     unmount: view.unmount,
   };
 }
@@ -595,6 +605,31 @@ it("bottom dwell catches up through the newest row, including a tall clipped row
   expect(h.dwelled()?.catchUp).toHaveBeenCalledExactlyOnceWith(
     "bottom",
     "thread",
+  );
+});
+it("a new latest message keeps observation and catches up after its row is measured", async () => {
+  const h = setup({ latestMessageId: "bottom" });
+  h.setRows([row("bottom", 100, 200)]);
+  h.mutation();
+  vi.advanceTimersToNextFrame();
+  await vi.advanceTimersByTimeAsync(300);
+  expect(h.dwelled()?.catchUp).toHaveBeenCalledExactlyOnceWith(
+    "bottom",
+    undefined,
+  );
+  const leases = h.leases.length;
+  h.setLatest("newer");
+  // Changing only the latest id neither restarts nor takes a lease.
+  expect(h.leases).toHaveLength(leases);
+  expect(h.leases.at(-1)?.dispose).not.toHaveBeenCalled();
+  expect(h.disconnected).not.toHaveBeenCalled();
+  h.setRows([row("bottom", 100, 200), row("newer", 200, 300)]);
+  h.mutation();
+  vi.advanceTimersToNextFrame();
+  await vi.advanceTimersByTimeAsync(300);
+  expect(h.dwelled()?.catchUp).toHaveBeenCalledExactlyOnceWith(
+    "newer",
+    undefined,
   );
 });
 it("a historical viewport or a bottom reached only at dwell end cannot catch up", async () => {
