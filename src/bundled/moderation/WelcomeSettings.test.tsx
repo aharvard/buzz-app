@@ -10,12 +10,17 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { npubEncode } from "nostr-tools/nip19";
 import { afterEach, expect, it, vi } from "vitest";
 import {
   communityRequest,
   type CommunityInfo,
 } from "../../features/communities/api";
 import { DEFAULT_WELCOME_MESSAGE } from "../../features/communities/WelcomeCard";
+import type {
+  ConversationExtensions,
+  LinkRenderer,
+} from "../../features/conversation/contracts";
 import type { ComposerInputElement } from "../../features/messages/composer-dom";
 import { composerDOMFixture } from "../../features/messages/composer-testing";
 import { profileTarget } from "../../features/profiles/target";
@@ -28,7 +33,9 @@ import type { ChannelSummary } from "../../features/relay/contracts";
 import { PublishRejected } from "../../features/relay/outbox";
 import type { RelayData } from "../../features/relay/service";
 import type { RelaySession } from "../../features/relay/session";
+import type { Contribution } from "../../plugins/contributions";
 import { ToastProvider } from "../../shared/design-system/ui/Toast";
+import { apply as applyLinks } from "../links/index";
 import { WelcomeSettings } from "./WelcomeSettings";
 
 vi.mock("../../features/communities/api", async (importOriginal) => ({
@@ -73,17 +80,45 @@ const rows = [
   },
 ];
 
+/** The conversation renderers the app provides, with the bundled Links
+ * renderer that draws Buzz and web links. */
+function linkExtensions(): ConversationExtensions {
+  const links: Contribution<LinkRenderer>[] = [];
+  applyLinks({
+    conversation: {
+      registerLink: (renderer: LinkRenderer) =>
+        links.push({
+          ...renderer,
+          key: `buzz.links/${renderer.id}`,
+          pluginId: "buzz.links",
+          revision: "one",
+        }),
+    },
+  } as never);
+  const none: readonly never[] = [];
+  const reader = <T,>(entries: readonly T[]) => ({
+    snapshot: () => entries,
+    subscribe: () => () => {},
+  });
+  return { links: reader(links), tools: reader(none), inline: reader(none) };
+}
+
 function setup({
   info = { policy: null, landingChannels: true, landingChannel: lobby },
   landing = { landing: true, welcome: "Hi there", name: "Lobby" },
   joined = [],
   directory = rows,
+  extensions,
+  names,
 }: {
   info?: CommunityInfo;
   landing?: ChannelLanding | undefined;
   /** The viewer's own channels, beside the directory. */
   joined?: ChannelSummary[];
   directory?: typeof rows;
+  extensions?: ConversationExtensions;
+  /** Known names by public key. */
+  names?: Readonly<Record<string, string>>;
 } = {}) {
   const readLanding = vi.fn(async () => landing);
   const setLanding = vi.fn<ChannelLifecycleCapability["setLanding"]>(
@@ -96,6 +131,14 @@ function setup({
     viewer: owner,
     media: () => undefined,
     channelLifecycle: { available: true, readLanding, setLanding, run },
+    ...(names && {
+      names: {
+        resolve: (pubkey: string, fallback?: string) =>
+          names[pubkey] ?? fallback,
+        snapshot: () => 0,
+        subscribe: () => () => {},
+      },
+    }),
     channels: {
       list: () => list,
       ensureList: () => () => {},
@@ -145,6 +188,7 @@ function setup({
       relay={relay}
       communityName="Primary"
       active={() => true}
+      extensions={extensions}
     />,
     { wrapper: ToastProvider },
   );
@@ -211,7 +255,7 @@ it("opens on a custom title and renders the message as Markdown in the preview",
   expect(preview.querySelector("strong")).toHaveTextContent("hi");
   expect(
     screen.getByText(
-      /Format with the toolbar or Markdown\. To link a channel, use Copy link/,
+      /Format with the toolbar or Markdown\. To link a channel or person, paste a copied channel link or npub\./,
     ),
   ).toBeVisible();
 });
@@ -246,6 +290,91 @@ it("writes toolbar formatting and a pasted channel link into the message as Mark
     expect(setLanding).toHaveBeenCalledWith(
       lobby,
       welcome(`${link} **Join**`),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    ),
+  );
+});
+
+it("draws channel links in the preview as the welcome card does", async () => {
+  // A channel's Copy link writes the bare link; the joined list names it.
+  setup({
+    landing: {
+      landing: true,
+      welcome: `Say hi in buzz://channel/${square}`,
+      name: "Lobby",
+    },
+    joined: [{ id: square, name: "Town square", channelType: "stream" }],
+    extensions: linkExtensions(),
+  });
+  const preview = await screen.findByRole("region", {
+    name: "Welcome to Primary",
+  });
+  await waitFor(() =>
+    expect(preview.querySelector("[data-link-kind='channel']")).not.toBeNull(),
+  );
+  const link = preview.querySelector("[data-link-kind='channel']");
+  // The channel icon supplies the hash, as in the timeline.
+  expect(link).toHaveTextContent(/^Town square$/);
+  expect(link?.querySelector("svg")).not.toBeNull();
+  expect(link?.closest("[data-link-renderer]")).toHaveAttribute(
+    "data-link-renderer",
+    "buzz.links/links",
+  );
+  // The preview stays inert: no link to follow.
+  expect(within(preview).queryByRole("link")).toBeNull();
+});
+
+/** Paste `text` as plain text at the start of an emptied message field. */
+function pasteIntoMessage(text: string) {
+  const input = messageField();
+  fireEvent.change(input, { target: { value: "" } });
+  act(() => {
+    input.focus();
+    document.dispatchEvent(new Event("selectionchange"));
+    fireEvent.paste(input, {
+      clipboardData: {
+        items: [],
+        getData: (type: string) => (type === "text/plain" ? text : ""),
+      },
+    });
+  });
+}
+
+it("links a pasted npub to the person, named as their profile names them", async () => {
+  const alice = "b".repeat(64);
+  const npub = npubEncode(alice);
+  const { setLanding, user } = setup({ names: { [alice]: "Alice" } });
+  await waitFor(() => expect(messageField()).toHaveValue("Hi there"));
+  // Copy npub writes the bare npub.
+  pasteIntoMessage(npub);
+  const preview = screen.getByRole("region", { name: "Welcome to Primary" });
+  await waitFor(() =>
+    expect(preview.querySelector("[data-profile-target]")).toHaveTextContent(
+      "Alice",
+    ),
+  );
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(setLanding).toHaveBeenCalledWith(
+      lobby,
+      welcome(`[@Alice](nostr:${npub})`),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    ),
+  );
+});
+
+it("labels a pasted nostr: npub with a short key when the name is unknown", async () => {
+  const npub = npubEncode("c".repeat(64));
+  const { setLanding, user } = setup({ names: {} });
+  await waitFor(() => expect(messageField()).toHaveValue("Hi there"));
+  pasteIntoMessage(`nostr:${npub}`);
+  await user.click(await screen.findByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(setLanding).toHaveBeenCalledWith(
+      lobby,
+      welcome(`[@npub…${npub.slice(-3)}](nostr:${npub})`),
       expect.any(AbortSignal),
       expect.any(Function),
     ),
@@ -715,12 +844,20 @@ it("browses the first 50 channels by name in both pickers and finds the rest by 
   const names = () =>
     screen.getAllByRole("option").map((option) => option.textContent);
   await waitFor(() => expect(channel()).toHaveValue("Lobby"));
-  // The welcome channel picker: 63 eligible channels, the first 50 shown.
+  // The welcome channel picker: 63 eligible channels, the first 50 shown,
+  // also while the field still shows the selected channel's name.
   await user.click(screen.getByRole("button", { name: "Browse channels" }));
   await waitFor(() => expect(names()).toHaveLength(50));
+  expect(channel()).toHaveValue("Lobby");
   expect(names()[0]).toBe("Channel 01");
   expect(names()[49]).toBe("Channel 50");
   expect(screen.getByText(hint)).toBeVisible();
+  // Reopened by clicking the field, the selection still browses 50.
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryAllByRole("option")).toHaveLength(0));
+  await user.click(channel());
+  await waitFor(() => expect(names()).toHaveLength(50));
+  expect(channel()).toHaveValue("Lobby");
   // A search covers every channel, including those past the first 50.
   await user.clear(channel());
   await user.type(channel(), "town");

@@ -164,8 +164,10 @@ there are no mentions, attachments, GIFs or cards. The message is stored as
 Markdown and rendered as messages are: published Markdown opens as its source
 text, as when editing a sent message, and formatting applied in the editor is
 written as Markdown. `[@Name](nostr:npub…)` identity links show the person
-without notifying them, and channel or message links pasted from **Copy link**
-show as chips in the editor and open in place for members. It takes
+without notifying them; a pasted npub from **Copy npub**, bare or as a
+`nostr:` URI, becomes one, labelled with the person's name when it is known.
+Channel or message links pasted from **Copy link** show as chips in the editor,
+and as linked names in the preview, and open in place for members. It takes
 1–4,000 characters, with no control characters other than line breaks and tabs.
 Both are checked against the relay's rules as the admin types. Line endings are
 normalized and both are trimmed before sending. A message matching the default

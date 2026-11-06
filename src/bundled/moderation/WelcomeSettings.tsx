@@ -17,6 +17,7 @@ import {
   type ChannelLifecycleCapability,
 } from "../../features/relay/channel-lifecycle";
 import type { WelcomeCommand } from "../../features/relay/channel-lifecycle-protocol";
+import type { ConversationExtensions } from "../../features/conversation/contracts";
 import type { ChannelSummary } from "../../features/relay/contracts";
 import { communityFromScope } from "../../features/relay/gifs";
 import {
@@ -105,10 +106,13 @@ export function WelcomeSettings({
   relay,
   communityName,
   active,
+  extensions,
 }: {
   relay: RelayData;
   communityName?: string | undefined;
   active(): boolean;
+  /** The conversation renderers, so the preview draws links as the card does. */
+  extensions?: ConversationExtensions | undefined;
 }) {
   const connection = useRelayConnection(relay);
   const community =
@@ -130,6 +134,7 @@ export function WelcomeSettings({
           community={community}
           communityName={communityName}
           active={active}
+          extensions={extensions}
         />
       ) : (
         <p role="status">Choose a connected community to set its welcome.</p>
@@ -242,12 +247,14 @@ function WelcomeEditor({
   community,
   communityName,
   active,
+  extensions,
 }: {
   session: RelaySession;
   scope: string;
   community: string;
   communityName?: string | undefined;
   active(): boolean;
+  extensions: ConversationExtensions | undefined;
 }) {
   const lifecycle = session.channelLifecycle;
   const defaultTitle = defaultWelcomeTitle(communityName);
@@ -492,6 +499,9 @@ function WelcomeEditor({
               <Combobox.Root<Option>
                 items={options}
                 filteredItems={matches}
+                // Until something is typed, a field showing the chosen name
+                // lists `items` instead of `filteredItems`; cap that browse too.
+                limit={BROWSE_LIMIT}
                 value={selected}
                 onValueChange={(option) => {
                   if (option) edit({ channelId: option.id });
@@ -565,8 +575,8 @@ function WelcomeEditor({
                 label="Message"
                 description={
                   <>
-                    Format with the toolbar or Markdown. To link a channel, use
-                    Copy link in its menu and paste the link here.{" "}
+                    Format with the toolbar or Markdown. To link a channel or
+                    person, paste a copied channel link or npub.{" "}
                     <span>
                       {[...normalized].length.toLocaleString("en-US")} of {MAX}{" "}
                       characters
@@ -672,6 +682,7 @@ function WelcomeEditor({
                 session={session}
                 scope={scope}
                 channelId={channelId ?? ""}
+                extensions={extensions}
                 onOpenLink={() => false}
                 interactive={false}
               />

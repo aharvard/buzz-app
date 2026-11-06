@@ -30,11 +30,13 @@ import {
   mentionDraft,
   type MentionDraft,
 } from "../../features/messages/mention-draft";
+import { profileMentionLink } from "../../features/messages/message-edit";
 import { messageLinkParts } from "../../features/messages/message-link-parts";
 import { profileKey } from "../../features/profiles/target";
 import { WELCOME_MAX_LENGTH } from "../../features/relay/landing";
 import { scanMarkdown } from "../../features/relay/message-content";
 import type { RelaySession } from "../../features/relay/session";
+import { formatPublicKey } from "../../shared/identity/public-key";
 import { Field } from "../../shared/design-system/ui/Field";
 import { InputGroup } from "../../shared/design-system/ui/InputGroup";
 import styles from "./WelcomeMessageEditor.module.css";
@@ -79,11 +81,26 @@ function linkRanges(text: string, rich: readonly SourceRange[]) {
 }
 
 /**
+ * A pasted npub, bare as Copy npub writes it or as a `nostr:` URI, becomes an
+ * identity link labelled with the person's name when it is known, so it shows
+ * as a chip. Like every identity link here, it notifies no one.
+ */
+function identityPaste(text: string, names: RelaySession["names"]) {
+  const npub = text.trim().replace(/^nostr:/, "");
+  const target = `nostr:${npub}`;
+  const pubkey = profileKey(target);
+  if (!pubkey) return text;
+  const name = names?.resolve(pubkey) ?? formatPublicKey(pubkey) ?? npub;
+  return profileMentionLink(`@${name}`, target);
+}
+
+/**
  * The welcome message in the composer's editor, with its formatting toolbar,
  * shortcuts and link dialog. The value is Markdown source, as the relay stores
  * it: formatting applied here is written as the composer sends it, and
  * published Markdown opens as its source and is sent back unchanged. There
- * are no recipients, so identity links only name people.
+ * are no recipients, so identity links, pasted npubs included, only name
+ * people.
  */
 export function WelcomeMessageEditor({
   ref,
@@ -196,6 +213,7 @@ export function WelcomeMessageEditor({
               onFormatsChange={setFormats}
               onEditLink={setLinkEdit}
               onPasteTooLong={() => setPasteTooLong(true)}
+              pastedText={(text) => identityPaste(text, session.names)}
             />
             <ComposerFormattingTools
               disabled={disabled}

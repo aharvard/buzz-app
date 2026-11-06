@@ -70,7 +70,9 @@ it("opens an identity link's profile from the timeline without notifying", async
       canOpenLink: () => true,
     }),
   );
-  await userEvent.click(screen.getByRole("button", { name: "View Ana profile" }));
+  await userEvent.click(
+    screen.getByRole("button", { name: "View Ana profile" }),
+  );
   expect(onOpenLink).toHaveBeenCalledWith(target);
 });
 
@@ -112,7 +114,9 @@ it("titles the default with the community the viewer saved, else a custom title"
   );
   expect(screen.getByRole("region", { name: "Hello, newcomer" })).toBeVisible();
   rerender(
-    <CommunityWelcomeCard scope="undefined:undefined">Body</CommunityWelcomeCard>,
+    <CommunityWelcomeCard scope="undefined:undefined">
+      Body
+    </CommunityWelcomeCard>,
   );
   expect(screen.getByRole("region", { name: "Welcome" })).toBeVisible();
 });

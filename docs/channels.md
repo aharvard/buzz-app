@@ -1297,19 +1297,21 @@ With no saved selection, Messages opens the community's welcome channel if the
 viewer is in it, then the first channel the relay flags `auto_join` (its starter
 channel for new members), then the first non-Solo channel; an explicit empty
 route bypasses all three. The welcome channel is the stream channel whose
-relay-signed `39000` carries `landing`. Its timeline starts with a welcome card
-for every viewer, even with no messages: the community name and its custom
-message, or the default one. The card is not a message, so it has no unread
-state, actions or dismissal. While the channel list or its metadata is still
-loading, Messages shows **Opening your channels…** instead of the blank
+relay-signed `39000` carries `landing`. Until every listed channel's metadata
+has arrived, any of them could be the welcome channel, so the starter and
+first-channel fallbacks wait. The welcome channel's timeline starts with a
+welcome card for every viewer, even with no messages: the community name and its
+custom message, or the default one. The card is not a message, so it has no
+unread state, actions or dismissal. While the channel list or its metadata is
+still loading, Messages shows **Opening your channels…** instead of the blank
 selection view. A list with no channel to open keeps that state for up to ten
 seconds, once per community visit, since the relay can still be adding a new
-member to the welcome channel; a channel that arrives meanwhile opens at once.
-A returning member with no channels left waits the same once. After that wait,
-an empty state offers **Try again**, which re-reads the channel list and waits
-the same way again. The client never joins the welcome channel for them. The relay adds people to its
-welcome and `auto_join` channels itself, welcome channel first, and the
-resulting membership hints populate the sidebar live:
+member to the welcome channel; a channel that arrives meanwhile opens at once. A
+returning member with no channels left waits the same once. After that wait, an
+empty state offers **Try again**, which re-reads the channel list and waits the
+same way again. The client never joins the welcome channel for them. The relay
+adds people to its welcome and `auto_join` channels itself, welcome channel
+first, and the resulting membership hints populate the sidebar live:
 
 - A community that requires relay membership adds a member once, when they join
   its roster: an invite claim that answers `joined`, or an admin's kind `9030`

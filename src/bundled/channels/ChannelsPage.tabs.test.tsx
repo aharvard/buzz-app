@@ -31,7 +31,7 @@ import {
 } from "../../features/relay/session";
 import type { RelayData } from "../../features/relay/service";
 import { matchesEvent } from "../../features/relay/projection";
-import type { RelayEvent } from "../../features/relay/events";
+import type { ReadFilter, RelayEvent } from "../../features/relay/events";
 import {
   keypair,
   metadata,
@@ -303,21 +303,25 @@ it.each(["side", "main"] as const)(
   },
 );
 
-/** A page over `events` with no saved selection and no registered panels. */
+/** A page over `events` with no saved selection and no registered panels.
+ * A read waits for the promise `hold` returns for its filters, if any. */
 function workspace(
   events: RelayEvent[],
   viewer = keypair(),
   authority = keypair(),
+  hold?: (filters: readonly ReadFilter[]) => Promise<void> | undefined,
 ) {
   const owner = createRelaySession(
     {
       viewer: viewer.pubkey,
       relayAuthor: authority.pubkey,
       media: () => undefined,
-      query: async (filters) =>
-        events.filter((event) =>
+      query: async (filters) => {
+        await hold?.(filters);
+        return events.filter((event) =>
           filters.some((filter) => matchesEvent(event, filter)),
-        ),
+        );
+      },
       writer: {
         sign: async (template) => signed(viewer, template),
         publish: async () => {},
@@ -437,6 +441,63 @@ it("opens the community's welcome channel before its auto-join channel and start
   expect(screen.queryByText("No messages yet.")).toBeNull();
 });
 
+it("waits for the welcome channel's metadata before opening an auto-join channel listed first", async () => {
+  const viewer = keypair(),
+    authority = keypair();
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let holding = false;
+  const { owner } = workspace(
+    [
+      roster(authority, "alpha", [viewer.pubkey]),
+      metadata(authority, "alpha", "Alpha", undefined, [
+        ["t", "stream"],
+        ["auto_join"],
+      ]),
+      roster(authority, "beta", [viewer.pubkey]),
+      metadata(authority, "beta", "Beta", undefined, [
+        ["t", "stream"],
+        ["landing"],
+      ]),
+    ],
+    viewer,
+    authority,
+    (filters) => {
+      // Hold every metadata read naming the welcome channel.
+      if (
+        !filters.some(
+          (filter) =>
+            filter.kinds?.includes(39000) && filter["#d"]?.includes("beta"),
+        )
+      )
+        return;
+      holding = true;
+      return held;
+    },
+  );
+  try {
+    await vi.waitFor(() => expect(holding).toBe(true));
+    // The auto-join channel's metadata lands first, by an exact lookup.
+    await act(() => owner.session.channels.resolve?.(["alpha"]));
+    const listed = owner.session.channels.list().channels;
+    const alpha = listed.find(({ id }) => id === "alpha");
+    expect(alpha?.autoJoin).toBe(true);
+    expect(alpha?.metadataPending).toBeFalsy();
+    expect(listed.find(({ id }) => id === "beta")?.metadataPending).toBe(true);
+    expect(screen.getByText("Opening your channels…")).toBeVisible();
+    expect(
+      screen.queryByRole("textbox", { name: "Message #Alpha" }),
+    ).toBeNull();
+  } finally {
+    release();
+  }
+  await screen.findByRole("textbox", { name: "Message #Beta" });
+  expect(screen.getByRole("region", { name: "Welcome" })).toBeVisible();
+  expect(screen.queryByRole("textbox", { name: "Message #Alpha" })).toBeNull();
+});
+
 it("shows the default welcome only in the welcome channel", async () => {
   const viewer = keypair(),
     authority = keypair();
@@ -545,7 +606,9 @@ it("keeps opening after an empty first list, then offers a list refresh instead 
     expect(
       screen.queryByRole("heading", { name: "You’re not in any channels yet" }),
     ).toBeNull();
-    expect(screen.getByRole("region", { name: "Channel history" })).toHaveFocus();
+    expect(
+      screen.getByRole("region", { name: "Channel history" }),
+    ).toHaveFocus();
     await screen.findByRole("textbox", { name: "Message #Beta" });
   } finally {
     vi.useRealTimers();

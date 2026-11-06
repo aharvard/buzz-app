@@ -564,10 +564,13 @@ function ChannelWorkspace({
         channels.find(
           (channel) => channel.landing && channel.channelType === "stream",
         ) ??
-        channels.find(
-          (channel) => channel.autoJoin && channel.channelType !== "solo",
-        ) ??
-        channels.find((item) => item.channelType !== "solo"));
+        // A channel whose metadata is still pending can be the welcome
+        // channel, so the fallbacks wait for it rather than settle first.
+        (metadataPending && list.status !== "error"
+          ? undefined
+          : (channels.find(
+              (channel) => channel.autoJoin && channel.channelType !== "solo",
+            ) ?? channels.find((item) => item.channelType !== "solo"))));
   // Exact links and saved selections must respect the same Huddle-only entry point.
   const resolving =
     resolvingMembership ||

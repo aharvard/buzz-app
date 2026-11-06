@@ -61,6 +61,8 @@ it("registers the Membership card under the key the community rail opens", async
   });
   const data = relay();
   root.provide("relay", data);
+  // The Welcome card's preview renders through the conversation renderers.
+  root.provide("conversation", {} as never);
   const access = createAdminAccess(
     data,
     {
@@ -120,6 +122,7 @@ it.each([
     });
     const data = relay(role);
     root.provide("relay", data);
+    root.provide("conversation", {} as never);
     const access = createAdminAccess(
       data,
       {

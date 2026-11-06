@@ -264,9 +264,9 @@ revokes all of them, and a pairing unused for 30 days expires.
   message editor has the composer's formatting toolbar and shortcuts, and a
   preview below it. The message is saved as Markdown, up to 4,000 characters,
   and a published message opens as its Markdown source; identity links name
-  people without notifying them, and channel links can be pasted from a
-  channel's **Copy link**. People already in the community keep their channels
-  when the welcome channel changes.
+  people without notifying them. Paste a channel's **Copy link** to link the
+  channel, or a person's **Copy npub** to link the person. People already in
+  the community keep their channels when the welcome channel changes.
 - **Starter channels**: in the same **Welcome** settings, owners and admins
   choose which other open channels new members join, even on relays without a
   welcome channel. Only starter channels are listed, each with **Remove**;
