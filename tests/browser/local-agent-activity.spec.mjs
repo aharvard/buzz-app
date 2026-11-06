@@ -721,7 +721,8 @@ test("finishing a channel response hands focus back only when it owns focus", as
     });
     await expect(summary).toBeVisible();
     if (focusOn === "popup") {
-      await summary.hover();
+      // Pin the popup open: this case checks focus handoff, not hover intent.
+      await summary.click();
       await popup
         .getByRole("button", { name: "View activity for Local tester" })
         .focus();
