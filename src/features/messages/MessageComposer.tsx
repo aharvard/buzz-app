@@ -34,6 +34,7 @@ import {
 } from "./mention-admission";
 import { rememberMention } from "./mention-history";
 import {
+  composerChips,
   readComposerSnapshot,
   readComposerDocument,
   projectComposerDocument,
@@ -133,7 +134,6 @@ import { ComposerModels, type DraftPicks } from "./ComposerModels";
 import type { MentionPicks } from "../relay/messages";
 import type {
   ConversationExtensions,
-  CompletionEdit,
   CompletionPending,
   CompletionQuery,
   CompletionResolution,
@@ -141,7 +141,10 @@ import type {
   ComposerResource,
 } from "../conversation/contracts";
 import { ComposerCompletions } from "../conversation/ComposerCompletions";
-import { MENTION_RESOLVE_TIMEOUT_MS } from "../conversation/completion";
+import {
+  MENTION_RESOLVE_TIMEOUT_MS,
+  type HostCompletionEdit,
+} from "../conversation/completion";
 import { useCompletionEditor } from "../conversation/useCompletionEditor";
 import { formatMediaTime, mediaTimeReply } from "./media-timecode";
 import { RichComposerInput } from "./RichComposerInput";
@@ -1132,7 +1135,12 @@ function Composer({
   const editDisabled = disabled || editLocked;
   // Task data from another build stays saved as it is until a build that
   // understands it sends it.
-  const unsupportedDraft = (!!taskDraft || taskChannel) && !!value.unsupported;
+  const chips = useMemo(
+    () => composerChips(readComposerSnapshot(value.document)),
+    [value.document],
+  );
+  const unsupportedDraft =
+    (!!taskDraft || taskChannel) && (!!value.unsupported || !!chips.length);
   const editingDisabled =
     disabled ||
     unsupportedDraft ||
@@ -1911,7 +1919,7 @@ function Composer({
     return input.current.insertResource(resource);
   }
   function replaceCompletion(
-    edit: CompletionEdit,
+    edit: HostCompletionEdit,
     query: CompletionQuery,
     observation: ComposerObservation,
     key?: string,
@@ -1950,6 +1958,11 @@ function Composer({
       return insertMentions(edit.mentions, query);
     if ("mention" in edit && edit.mention)
       return insert(`@${edit.mention.name} `, edit.mention, query);
+    if ("token" in edit && edit.token) {
+      if (editing.target) return false;
+      completion.invalidate();
+      return input.current?.insertToken(edit.token, query) ?? false;
+    }
     return (
       typeof edit.text === "string" &&
       insert(
@@ -2502,6 +2515,9 @@ function Composer({
       session.agentChoices.snapshot(),
     );
     try {
+      // Task composers already keep chip drafts unsent (`unsupportedDraft`).
+      if (composerChips(readComposerSnapshot(captured.document)).length)
+        throw new Error("Task tokens require a task chat.");
       const bringable = new Set(
         (agents?.joinable() ?? []).map((agent) => agent.pubkey),
       );
@@ -3169,7 +3185,7 @@ function Composer({
             threadRootId={threadRootId}
             inviteAgents={agentChoices && !editing.target}
             replace={replaceCompletion}
-            resolved={value}
+            resolved={chips.length ? { ...value, tokens: chips } : value}
           />
         )}
         <BackgroundUploadStatus session={session} focusTarget={input} />
