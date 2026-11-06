@@ -9,6 +9,7 @@ import { messageAuthor } from "./fold";
 import { threadReference } from "./thread-reference";
 import type { EventData } from "./events";
 import type { Outbox, OutboxRecovery } from "./outbox";
+import { signedTaskTokenTags } from "../messages/task-tokens";
 
 /** Owner authorization is supplied only after the agent's signed profile is verified. */
 export type AgentOwnerAuthorization = Readonly<{
@@ -302,6 +303,7 @@ export function createMessages(
             ...pickTags(channelId, mentions, picks),
             ...emojiTags(content),
             ...message.tags,
+            ...signedTaskTokenTags(),
           ],
         },
         ...(recovery ? [recovery] : []),
@@ -418,6 +420,7 @@ export function createMessages(
           ...pickTags(channelId, mentions, picks),
           ...emojiTags(content),
           ...message.tags,
+          ...signedTaskTokenTags(),
         ],
       });
     },
