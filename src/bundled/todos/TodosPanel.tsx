@@ -152,6 +152,9 @@ export function TodosPanel({
   const members = channel?.members;
   // Members are read-only until startup confirms them; never discard drafts.
   const readOnly = canvasReadOnly(channel);
+  // save() re-checks this after its wait; capability's canWrite ignores archived.
+  const latestReadOnly = useRef(readOnly);
+  latestReadOnly.current = readOnly;
   const resolveName = (pubkey: string, fallback: string) =>
     resolveIdentity(pubkey, fallback, members ?? noMembers);
   const key = `todos-draft-v1:${context.channelId}`;
@@ -282,7 +285,7 @@ export function TodosPanel({
       next.content === next.original ||
       conflict ||
       !canvas.available ||
-      readOnly
+      latestReadOnly.current
     )
       return;
     saving.current = true;
@@ -302,7 +305,12 @@ export function TodosPanel({
         });
         cancelWait.current = undefined;
       }
-      if (!active() || generation !== operation.current) return;
+      if (
+        !active() ||
+        generation !== operation.current ||
+        latestReadOnly.current
+      )
+        return;
       const head = await canvas.save(
         context.channelId,
         next.content,
@@ -733,9 +741,7 @@ export function TodosPanel({
               <PopoverPopup align="end">
                 <PopoverTitle>{saveStatus}</PopoverTitle>
                 <PopoverDescription>
-                  Todos are shared in this channel’s Canvas. Changes save
-                  automatically. Refresh to load others’ changes. On older
-                  relays, simultaneous saves can overwrite edits.
+                  {`Todos are shared in this channel’s Canvas. ${readOnly ? "" : "Changes save automatically. "}Refresh to load others’ changes. On older relays, simultaneous saves can overwrite edits.`}
                 </PopoverDescription>
               </PopoverPopup>
             </PopoverRoot>
@@ -824,7 +830,8 @@ export function TodosPanel({
               )}
               {restored && readOnly && (
                 <p role="status" className="text-body-sm text-secondary">
-                  Showing your unsaved local draft.
+                  Showing your unsaved local draft. Refresh to see the saved
+                  list.
                 </p>
               )}
               {conflict && !busy && (

@@ -96,6 +96,8 @@ afterEach(() => {
   vi.useRealTimers();
 });
 const retry = () => screen.getByRole("button", { name: /^Retry$/ });
+const localDraft =
+  "Showing your unsaved local draft. Refresh to see the saved list.";
 const saved = () =>
   waitFor(() =>
     expect(screen.getByRole("status")).toHaveTextContent("Saved in Canvas"),
@@ -410,6 +412,87 @@ it.each<Partial<ChannelSummary>>([
   expect(
     screen.queryByRole("button", { name: /^Retry$/ }),
   ).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "About todos" }));
+  expect(
+    await screen.findByText(/^Todos are shared in this channel’s Canvas\./),
+  ).toHaveTextContent(
+    "Todos are shared in this channel’s Canvas. Refresh to load others’ changes.",
+  );
+});
+it("omits the add hint from a read-only empty list", async () => {
+  const f = fixture();
+  f.canvas.read.mockResolvedValue({ ...head, content: "" });
+  render(
+    <TodosPanel {...f.props} people={listedAs({ archived: true }).people} />,
+  );
+  expect(await screen.findByText("No todos yet")).toBeInTheDocument();
+  expect(screen.queryByText(/Add a todo above/)).not.toBeInTheDocument();
+});
+it("keeps a waiting save local when the channel is archived before it writes", async () => {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+  vi.setSystemTime(1700000000250);
+  const f = fixture();
+  f.canvas.read.mockResolvedValue({ ...head, created_at: 1700000000 });
+  const roster = listedAs({});
+  render(<TodosPanel {...f.props} people={roster.people} />);
+  await act(async () => {});
+  act(() => screen.getByRole("checkbox", { name: "First" }).click());
+  expect(screen.getByRole("status")).toHaveTextContent("Saving…");
+  // The capability's canWrite ignores archived, so only Todos can stop this.
+  roster.update({
+    status: "ready",
+    channels: [
+      { id: context.channelId, name: "Team", members: [], archived: true },
+    ],
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+  expect(f.canvas.save).not.toHaveBeenCalled();
+  expect(
+    readView(context.scope, `todos-draft-v1:${context.channelId}`, null),
+  ).toEqual({
+    content: original.replace("[ ] First", "[x] First"),
+    original,
+    base: head.id,
+    input: "",
+  });
+  expect(screen.getByText("Unsaved changes")).toHaveAttribute("role", "status");
+  expect(screen.getByText(localDraft)).toHaveAttribute("role", "status");
+  expect(screen.getByRole("checkbox", { name: "First" })).toBeChecked();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+it("lets a read-only guest discard a conflicting stored draft without writing", async () => {
+  const f = fixture(),
+    user = userEvent.setup();
+  const key = `todos-draft-v1:${context.channelId}`;
+  writeView(context.scope, key, {
+    content: original.replace("[ ] First", "[x] First"),
+    original,
+    base: "c".repeat(64), // An older revision than head.
+    input: "",
+  });
+  render(
+    <TodosPanel
+      {...f.props}
+      people={listedAs({ readOnly: true, viewerRole: "guest" }).people}
+    />,
+  );
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Canvas changed elsewhere. Refresh to load the latest todos. Your changes are kept until then.",
+  );
+  expect(screen.getByRole("checkbox", { name: "First" })).toBeChecked();
+  await user.click(screen.getByRole("button", { name: "Refresh todos" }));
+  await user.click(
+    await screen.findByRole("button", { name: "Discard and refresh" }),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("checkbox", { name: "First" })).not.toBeChecked(),
+  );
+  expect(readView(context.scope, key, null)).toBeNull();
+  expect(f.canvas.save).not.toHaveBeenCalled();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(screen.queryByText(localDraft)).not.toBeInTheDocument();
 });
 it("keeps a stored draft while read-only and offers Retry when writing returns", async () => {
   const f = fixture(),
@@ -427,9 +510,7 @@ it("keeps a stored draft while read-only and offers Retry when writing returns",
   roster.update({ status: "loading", channels: [] });
   render(<TodosPanel {...f.props} people={roster.people} />);
   expect(await screen.findByRole("checkbox", { name: "First" })).toBeChecked();
-  expect(
-    screen.getByText("Showing your unsaved local draft."),
-  ).toBeInTheDocument();
+  expect(screen.getByText(localDraft)).toBeInTheDocument();
   expect(readView(context.scope, key, null)).toEqual(draft);
   roster.update({
     status: "ready",
@@ -443,17 +524,14 @@ it("keeps a stored draft while read-only and offers Retry when writing returns",
       },
     ],
   });
-  expect(screen.getByText("Showing your unsaved local draft.")).toHaveAttribute(
-    "role",
-    "status",
-  );
+  expect(screen.getByText(localDraft)).toHaveAttribute("role", "status");
   expect(
     screen.queryByRole("button", { name: /^Retry$/ }),
   ).not.toBeInTheDocument();
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   const input = screen.getByRole("textbox", { name: "New todo" });
   expect(input).toHaveValue("Still typing");
-  // Enter in the field submits this form; it must not reach a Canvas write.
+  // Submitting the form while read-only must not write.
   fireEvent.submit(input);
   expect(f.canvas.save).not.toHaveBeenCalled();
   expect(readView(context.scope, key, null)).toEqual(draft);
@@ -465,9 +543,7 @@ it("keeps a stored draft while read-only and offers Retry when writing returns",
     "Recovered unsaved changes. Retry to save them to Canvas.",
   );
   expect(screen.queryByText("Todos are read-only.")).not.toBeInTheDocument();
-  expect(
-    screen.queryByText("Showing your unsaved local draft."),
-  ).not.toBeInTheDocument();
+  expect(screen.queryByText(localDraft)).not.toBeInTheDocument();
   await user.click(retry());
   await saved();
   expect(f.canvas.save).toHaveBeenCalledExactlyOnceWith(
