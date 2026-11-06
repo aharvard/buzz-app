@@ -1437,6 +1437,7 @@ it("DMs cannot add people without a connection that adds to them", async () => {
 it("a person joins a DM with its history when the adder includes it", async () => {
   const t = await setup("dm", false, false, undefined, undefined, {
     directMessages: true,
+    extraMembers: 1,
   });
   await t.user.click(await t.search());
   const choice = await screen.findByRole("alertdialog", {
@@ -1458,6 +1459,7 @@ it("a person added without history opens a new DM of everyone", async () => {
   const onOpenConversation = vi.fn(() => true);
   const t = await setup("dm", false, false, { onOpenConversation }, undefined, {
     directMessages: true,
+    extraMembers: 1,
   });
   await t.user.click(await t.search());
   await t.user.click(
@@ -1477,9 +1479,29 @@ it("a person added without history opens a new DM of everyone", async () => {
     },
   );
 });
+it("a person added to a DM of one person and their agents starts a new DM without asking", async () => {
+  const onOpenConversation = vi.fn(() => true);
+  const t = await setup("dm", false, false, { onOpenConversation }, undefined, {
+    directMessages: true,
+  });
+  await t.user.click(await t.search());
+  await vi.waitFor(() =>
+    expect(onOpenConversation).toHaveBeenCalledWith(t.forkId),
+  );
+  expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  expect(t.openDirectMessage).toHaveBeenCalledWith(
+    [t.person.pubkey],
+    expect.any(AbortSignal),
+    {
+      channelId: "11111111-1111-4111-8111-111111111111",
+      includeHistory: false,
+    },
+  );
+});
 it("cancelling the choice adds no one", async () => {
   const t = await setup("dm", false, false, undefined, undefined, {
     directMessages: true,
+    extraMembers: 1,
   });
   await t.user.click(await t.search());
   await t.user.click(
