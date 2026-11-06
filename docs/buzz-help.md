@@ -258,8 +258,10 @@ revokes all of them, and a pairing unused for 30 days expires.
   public channel that new members join and open first. It starts with a
   welcome card for everyone, showing the community's message or a default one.
   The card isn't a message: it can't be replied to, deleted or dismissed. While
-  a new member's channels arrive, Messages says it is opening them. If none
-  arrive within a few seconds, **Try again** checks for them again. Owners and admins choose the channel and edit
+  a new member's channels arrive, Messages says it is opening them, and waits a
+  few seconds for the welcome channel rather than open another conversation
+  first. If none arrive, **Try again** checks for them again; a welcome channel
+  that arrives later still opens. Owners and admins choose the channel and edit
   the card's title and message in **Settings → Community admin → Welcome**. The
   message editor has the composer's formatting toolbar and shortcuts. The
   default title names the community when the relay or you have given it a

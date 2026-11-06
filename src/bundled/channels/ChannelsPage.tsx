@@ -53,6 +53,7 @@ import { lifecycleNoun } from "./ChannelLifecycleDialog";
 import type { PageNavigation } from "../../features/navigation/service";
 import type {
   Navigation,
+  NavigationFocus,
   NavigationOpenOptions,
 } from "../../features/navigation/controller";
 import { targetKey, type OpenTarget } from "../../features/navigation/targets";
@@ -124,6 +125,8 @@ import { channelHasUnread } from "./useSidebarFilters";
 import { inFieldOutsideComposer } from "./conversation-rows";
 import styles from "./Channels.module.css";
 import type { CommunityReader } from "../../features/communities/service";
+import type { CommunityInfo } from "../../features/communities/api";
+import { communityFromScope } from "../../features/relay/gifs";
 import { avatarMedia } from "../../shared/avatar-source";
 
 /** The open Solo conversation's Archive, published for the shortcut while its visit is live. */
@@ -146,6 +149,7 @@ export function ChannelsPage({
   navigator,
   agents,
   communities,
+  landing,
   archive,
   read,
 }: {
@@ -154,6 +158,9 @@ export function ChannelsPage({
   /** For adding a whole team of the owner's agents from the members dialog. */
   agents?: Agents | undefined;
   communities?: CommunityReader | undefined;
+  /** Reads the relay's welcome-channel support, so a new member's opening can
+   * wait for the channel the relay is adding them to. */
+  landing?: LandingReader | undefined;
   relay: RelayData;
   navigation?: PageNavigation | undefined;
   navigator: Navigation;
@@ -309,6 +316,7 @@ export function ChannelsPage({
           companion={companion}
           agents={agents}
           communities={communities}
+          landing={landing}
         />
       )}
     </section>
@@ -326,6 +334,26 @@ function LiveNewMessage(
 /** How long a channel list with nothing to open keeps the opening state. */
 const ENROLLMENT_WAIT_MS = 10_000;
 
+type Landing = Pick<CommunityInfo, "landingChannels" | "landingChannel">;
+export type LandingReader = (
+  community: string,
+  signal: AbortSignal,
+) => Promise<Landing>;
+
+/** Focus for a default that replaces its visit's opening: focus the reader
+ * has moved out of Messages stays where it is. */
+function correctionFocus(
+  history: HTMLElement | null,
+  focus: NavigationFocus | undefined,
+): NavigationFocus | undefined {
+  const active = document.activeElement;
+  return active &&
+    active !== document.body &&
+    !history?.closest("[data-channel-workspace]")?.contains(active)
+    ? "preserve"
+    : focus;
+}
+
 function ChannelWorkspace({
   extensions,
   chatMenus,
@@ -340,6 +368,7 @@ function ChannelWorkspace({
   viewer,
   agents,
   communities,
+  landing,
   archive,
   read,
 }: {
@@ -348,6 +377,7 @@ function ChannelWorkspace({
   agents?: Agents | undefined;
   companion?: ReactNode;
   communities?: CommunityReader | undefined;
+  landing?: LandingReader | undefined;
   scope: string;
   navigation?: PageNavigation | undefined;
   navigator: Navigation;
@@ -563,10 +593,59 @@ function ChannelWorkspace({
   const welcomeChannel = channels.find(
     (channel) => channel.landing && channel.channelType === "stream",
   );
+  /** When the list first loaded; the opening waits are measured from it. */
+  const listed = useRef<number>(undefined);
+  // With nothing saved or requested, the relay's NIP-11 document names its
+  // welcome channel before the list can: a new member's list may not have it yet.
+  const community = communityFromScope(scope);
+  const needsLanding =
+    !!landing &&
+    !!community &&
+    !cached &&
+    !emptyDestination &&
+    !requestedChannel &&
+    !kept &&
+    (!selected || list.status === "ready");
+  const [landingRead, setLandingRead] = useState<Landing | "failed">();
+  useEffect(() => {
+    if (!needsLanding || landingRead || !landing || !community) return;
+    const reading = new AbortController();
+    landing(community, reading.signal).then(
+      (info) => !reading.signal.aborted && setLandingRead(info),
+      () => !reading.signal.aborted && setLandingRead("failed"),
+    );
+    return () => reading.abort();
+  }, [needsLanding, landingRead, landing, community]);
+  const landingInfo = landingRead === "failed" ? undefined : landingRead;
+  const awaited = landingInfo?.landingChannel;
+  // While that read is pending, or names a channel not listed yet, no other
+  // channel opens in its place, until ENROLLMENT_WAIT_MS after the list loaded.
+  const [heldOut, setHeldOut] = useState(false);
+  const holdFallback =
+    needsLanding &&
+    !heldOut &&
+    !welcomeChannel &&
+    list.status !== "error" &&
+    (!landingRead ||
+      (!!awaited && !list.channels.some((channel) => channel.id === awaited)));
+  useEffect(() => {
+    if (!holdFallback || list.status !== "ready") return;
+    const timer = setTimeout(
+      () => setHeldOut(true),
+      Math.max(
+        0,
+        (listed.current ?? Date.now()) + ENROLLMENT_WAIT_MS - Date.now(),
+      ),
+    );
+    return () => clearTimeout(timer);
+  }, [holdFallback, list.status]);
   // A channel whose metadata is still pending can be the welcome channel, so
   // the starter and first-channel fallbacks wait for it rather than settle first.
   const fallback =
-    kept || welcomeChannel || (metadataPending && list.status !== "error")
+    kept ||
+    welcomeChannel ||
+    holdFallback ||
+    (metadataPending && list.status !== "error")
       ? undefined
       : (channels.find(
           (channel) => channel.autoJoin && channel.channelType !== "solo",
@@ -600,30 +679,34 @@ function ChannelWorkspace({
   // A list with nothing to open can be a new member's, read before the relay
   // has added them to the welcome channel. Any such empty default keeps
   // opening for a bounded time, once per workspace, before offering recovery;
-  // Try again refreshes the list and waits once more.
+  // a relay without welcome channels adds no one, so its first list does not
+  // wait. Try again refreshes the list and waits once more.
   const [listAttempt, setListAttempt] = useState(0);
   const [waitedOut, setWaitedOut] = useState(-1);
-  const noChannels = emptyList && waitedOut === listAttempt;
+  const unenrolled =
+    waitedOut === listAttempt ||
+    (listAttempt === 0 && landingInfo?.landingChannels === false);
+  const noChannels = emptyList && unenrolled;
   useEffect(() => {
-    if (!emptyList || waitedOut === listAttempt) return;
+    if (!emptyList || unenrolled) return;
     const timer = setTimeout(
       () => setWaitedOut(listAttempt),
       ENROLLMENT_WAIT_MS,
     );
     return () => clearTimeout(timer);
-  }, [emptyList, listAttempt, waitedOut]);
+  }, [emptyList, listAttempt, unenrolled]);
   const opening =
     defaulting &&
     (list.status === "idle" ||
       list.status === "loading" ||
       metadataPending ||
+      holdFallback ||
       (emptyList && !noChannels));
   // The relay's membership hints can confirm a new member's starter channel
   // before their welcome channel, so a fallback chosen with no welcome channel
   // listed is provisional. Until the reader clicks or types anywhere or moves
   // to another visit, a welcome channel arriving within ENROLLMENT_WAIT_MS of
   // the list first loading replaces it.
-  const listed = useRef<number>(undefined);
   const provisional = useRef<{
     channelId: string;
     entryId: string | undefined;
@@ -691,16 +774,7 @@ function ChannelWorkspace({
         : shown?.id !== choice.entryId)
     )
       return;
-    // Focus the reader has moved out of Messages stays where it is.
-    const active = document.activeElement;
-    const focus =
-      active &&
-      active !== document.body &&
-      !historyContainer.current
-        ?.closest("[data-channel-workspace]")
-        ?.contains(active)
-        ? "preserve"
-        : visitFocus;
+    const focus = correctionFocus(historyContainer.current, visitFocus);
     // The same opening, corrected: no return path to the fallback.
     navigate(welcomeId, { replace: true, ...(focus && { focus }) });
   }, [welcomeId, currentId, visitFocus, navigate, navigator, settleDefault]);
@@ -722,6 +796,8 @@ function ChannelWorkspace({
     }
   }, [joiningChannel, current]);
   const CurrentChannelIcon = channelIcon(current);
+  /** The opened visit a late default last replaced, which it does once. */
+  const corrected = useRef<string>(undefined);
   useEffect(() => {
     if (navigation?.signal.aborted) return;
     if (composingMessage || draft) {
@@ -750,7 +826,7 @@ function ChannelWorkspace({
       navigation?.complete({ status: "opened" });
     if (!requestedChannel && current && navigation && viewer) {
       // Resolve the saved default within this attempt, keeping its caller and deadline.
-      navigation.resolve({
+      const resolved = navigation.resolve({
         version: 1,
         kind: "conversation",
         channelId: current.id,
@@ -759,6 +835,25 @@ function ChannelWorkspace({
           communityOrigin: scope.slice(0, -(viewer.length + 1)),
         },
       });
+      // The visit opened with nothing to show, as the opening waits do. The
+      // welcome channel arriving since, or the fallback once a held opening
+      // gave up on it, replaces that visit so its route and selection follow.
+      // Only while the visit is shown, never Settings or a visit opened since.
+      const shown = navigator.snapshot();
+      if (
+        !resolved &&
+        (current.id === welcomeId || heldOut) &&
+        shown.status === "opened" &&
+        shown.entry.id === navigation.entryId &&
+        corrected.current !== navigation.entryId
+      ) {
+        corrected.current = navigation.entryId;
+        const focus = correctionFocus(
+          historyContainer.current,
+          navigation.focus,
+        );
+        navigate(current.id, { replace: true, ...(focus && { focus }) });
+      }
     }
   }, [
     cached,
@@ -771,8 +866,12 @@ function ChannelWorkspace({
     current,
     list,
     navigation,
+    navigator,
+    navigate,
     viewer,
     scope,
+    welcomeId,
+    heldOut,
   ]);
   const requestedMessage =
     navigation?.target.kind === "conversation"

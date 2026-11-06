@@ -38,13 +38,13 @@ import {
   roster,
   signed,
 } from "../../features/relay/testing";
-import { writeView } from "../../shared/view-state";
+import { readView, writeView } from "../../shared/view-state";
 import type { Navigation } from "../../features/navigation/controller";
 import { useChannelTabState } from "./useChannelTabState";
 import { setThreadPlacementPreference } from "../../features/messages/thread-preferences";
 import { SOLO_LABEL } from "../../features/solo/labels";
 import { composerDOMFixture } from "../../features/messages/composer-testing";
-import { ChannelsPage } from "./ChannelsPage";
+import { ChannelsPage, type LandingReader } from "./ChannelsPage";
 import { ToastProvider } from "../../shared/design-system/ui/Toast";
 import { BrowserHostView } from "../../features/browser/BrowserHostView";
 import { BrowserSessions } from "../../features/browser/sessions";
@@ -304,12 +304,14 @@ it.each(["side", "main"] as const)(
 );
 
 /** A page over `events` with no saved selection and no registered panels.
- * A read waits for the promise `hold` returns for its filters, if any. */
+ * A read waits for the promise `hold` returns for its filters, if any; the
+ * relay's welcome-channel support is read from `landing`, if given. */
 function workspace(
   events: RelayEvent[],
   viewer = keypair(),
   authority = keypair(),
   hold?: (filters: readonly ReadFilter[]) => Promise<void> | undefined,
+  landing?: LandingReader,
 ) {
   const owner = createRelaySession(
     {
@@ -353,9 +355,8 @@ function workspace(
     requestOpen: () => false,
     handleOpenRequests: () => () => {},
   };
-  const navigator = createNavigationController(
-    createMemoryHistory(),
-  ).navigation;
+  const controller = createNavigationController(createMemoryHistory());
+  const navigator = controller.navigation;
   const page = (navigation?: PageNavigation) => (
     <ToastProvider>
       <ChannelsPage
@@ -363,12 +364,15 @@ function workspace(
         panels={panels}
         navigator={navigator}
         navigation={navigation}
+        landing={landing}
       />
     </ToastProvider>
   );
   const { rerender } = render(page());
-  /** Re-route the mounted page; `undefined` returns to the unrouted workspace. */
-  const visit = (target?: OpenTarget, entryId = "visit") =>
+  /** Re-route the mounted page; `undefined` returns to the unrouted workspace.
+   * A `hosted` visit answers the navigator's pending attempt, as the host's
+   * does, so once it has opened it resolves nothing. */
+  const visit = (target?: OpenTarget, entryId = "visit", hosted = false) =>
     rerender(
       page(
         target && {
@@ -381,8 +385,13 @@ function workspace(
           forSession() {
             return this;
           },
-          resolve: () => true,
-          complete: () => true,
+          resolve: hosted
+            ? (next) => controller.resolve(navigator.snapshot().attempt, next)
+            : () => true,
+          complete: hosted
+            ? (result) =>
+                controller.complete(navigator.snapshot().attempt, result)
+            : () => true,
         },
       ),
     );
@@ -644,6 +653,142 @@ it("opens the welcome channel as soon as it arrives while the opening state wait
   expect(
     screen.queryByRole("heading", { name: "You’re not in any channels yet" }),
   ).toBeNull();
+});
+
+/** The Messages page, opened through the navigator's own visit. */
+const messagesPage: OpenTarget = {
+  version: 1,
+  kind: "page",
+  pluginId: "buzz.channels",
+  pageId: "channels",
+};
+
+it("shows an empty list at once on a relay without welcome channels", async () => {
+  const landing = vi.fn<LandingReader>(async () => ({
+    landingChannels: false,
+  }));
+  const { owner } = workspace([], keypair(), keypair(), undefined, landing);
+  await vi.waitFor(() =>
+    expect(owner.session.channels.list().status).toBe("ready"),
+  );
+  // No one is being added to a welcome channel, so there is nothing to wait for.
+  expect(
+    await screen.findByRole("heading", {
+      name: "You’re not in any channels yet",
+    }),
+  ).toBeVisible();
+  expect(screen.queryByText("Opening your channels…")).toBeNull();
+  expect(landing).toHaveBeenCalledWith("https://relay.test", expect.anything());
+});
+
+/** A new member listed only in a DM so far, on a relay whose NIP-11 names
+ * `beta` as its welcome channel. */
+async function awaitingWelcome(hosted = false) {
+  const viewer = keypair(),
+    authority = keypair(),
+    other = keypair();
+  const events: RelayEvent[] = [
+    roster(authority, "pat", [viewer.pubkey, other.pubkey]),
+    metadata(authority, "pat", "Pat", undefined, [["t", "dm"]]),
+  ];
+  const landing = vi.fn<LandingReader>(async () => ({
+    landingChannels: true,
+    landingChannel: "beta",
+  }));
+  const { owner, scope, navigator, visit } = workspace(
+    events,
+    viewer,
+    authority,
+    undefined,
+    landing,
+  );
+  if (hosted) visit(messagesPage, navigator.snapshot().entry.id, true);
+  await vi.waitFor(() =>
+    expect(owner.session.channels.list().status).toBe("ready"),
+  );
+  await vi.waitFor(() => expect(landing).toHaveBeenCalledOnce());
+  // The read has answered and the page has rendered its outcome.
+  await act(async () => {});
+  return { owner, scope, navigator, viewer, authority, events };
+}
+
+it("waits for the welcome channel the relay names rather than open a DM, then opens it", async () => {
+  const { owner, viewer, authority, events } = await awaitingWelcome();
+  expect(screen.getByText("Opening your channels…")).toBeVisible();
+  expect(screen.queryByRole("textbox")).toBeNull();
+  events.push(
+    roster(authority, "beta", [viewer.pubkey]),
+    metadata(authority, "beta", "Beta", undefined, [
+      ["t", "stream"],
+      ["landing"],
+    ]),
+  );
+  owner.session.channels.refreshList?.();
+  await screen.findByRole("textbox", { name: "Message #Beta" });
+  expect(screen.getByRole("region", { name: "Welcome" })).toBeVisible();
+});
+
+it("opens and keeps the DM once the welcome channel the relay names stays unlisted", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const { scope, navigator } = await awaitingWelcome(true);
+    // The visit opened on the wait; the DM then replaces it.
+    expect(navigator.snapshot().status).toBe("opened");
+    await act(() => vi.advanceTimersByTimeAsync(9_000));
+    expect(screen.getByText("Opening your channels…")).toBeVisible();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    await act(() => vi.advanceTimersByTimeAsync(1_000));
+    expect(await screen.findByRole("textbox")).toBeVisible();
+    expect(navigator.snapshot()).toMatchObject({
+      canGoBack: false,
+      entry: { target: { kind: "conversation", channelId: "pat" } },
+    });
+    // Saved, so the next opening shows it without waiting again.
+    expect(readView(scope, "selected-channel", undefined)).toBe("pat");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("opens and saves a welcome channel that arrives after the empty list settled", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const viewer = keypair(),
+      authority = keypair();
+    const events: RelayEvent[] = [];
+    const { owner, scope, navigator, visit } = workspace(
+      events,
+      viewer,
+      authority,
+    );
+    visit(messagesPage, navigator.snapshot().entry.id, true);
+    await vi.waitFor(() =>
+      expect(owner.session.channels.list().status).toBe("ready"),
+    );
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(
+      screen.getByRole("heading", { name: "You’re not in any channels yet" }),
+    ).toBeVisible();
+    // The visit opened on the empty state, so it can no longer be resolved.
+    expect(navigator.snapshot().status).toBe("opened");
+    events.push(
+      roster(authority, "beta", [viewer.pubkey]),
+      metadata(authority, "beta", "Beta", undefined, [
+        ["t", "stream"],
+        ["landing"],
+      ]),
+    );
+    owner.session.channels.refreshList?.();
+    await screen.findByRole("textbox", { name: "Message #Beta" });
+    // The same opening, corrected: no way back to the empty state.
+    expect(navigator.snapshot()).toMatchObject({
+      canGoBack: false,
+      entry: { target: { kind: "conversation", channelId: "beta" } },
+    });
+    expect(readView(scope, "selected-channel", undefined)).toBe("beta");
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it("selects a default channel the relay adds after the page opened", async () => {

@@ -1299,7 +1299,12 @@ channel for new members), then the first non-Solo channel; an explicit empty
 route bypasses all three. The welcome channel is the stream channel whose
 relay-signed `39000` carries `landing`. Until every listed channel's metadata
 has arrived, any of them could be the welcome channel, so the starter and
-first-channel fallbacks wait. The relay's membership hints can still add a new
+first-channel fallbacks wait. They also wait for the relay's NIP-11 document,
+read when Messages has nothing saved or requested to open, and while the
+welcome channel it names is not listed yet: no DM or other channel opens in its
+place until it arrives or ten seconds pass from the channel list first loading.
+The channel opened when that wait ends is saved as the selection, so the next
+opening does not wait again. The relay's membership hints can still add a new
 member to their starter channel before their welcome channel, so a fallback
 opened while no welcome channel is listed is provisional: a welcome channel that
 arrives within ten seconds of the channel list first loading replaces it, unless
@@ -1314,9 +1319,14 @@ still loading, Messages shows **Opening your channels…** instead of the blank
 selection view. A list with no channel to open keeps that state for up to ten
 seconds, once per community visit, since the relay can still be adding a new
 member to the welcome channel; a channel that arrives meanwhile opens at once. A
-returning member with no channels left waits the same once. After that wait, an
-empty state offers **Try again**, which re-reads the channel list and waits the
-same way again. The client never joins the welcome channel for them. The relay
+returning member with no channels left waits the same once. A relay whose NIP-11
+document does not advertise `buzz-landing-channel` adds no one to a welcome
+channel, so its first empty list shows the empty state at once. After that
+wait, an empty state offers **Try again**, which re-reads the channel list and
+waits the same way again, on any relay. A welcome channel that arrives after
+Messages opened without one, even after the empty state, opens then and is
+saved as the selection; it replaces that opening in history, unless Settings or
+another visit is shown by then. The client never joins the welcome channel for them. The relay
 adds people to its welcome and `auto_join` channels itself, welcome channel
 first, and the resulting membership hints populate the sidebar live:
 

@@ -144,7 +144,8 @@ community origin and viewer; channel IDs alone are not sufficient keys.
 A relay that advertises the `buzz-landing-channel` NIP-11 extension keeps one
 welcome channel per community. The relay adds each newly entering human to it
 first, ahead of the starter channels. Messages opens it when there is no saved
-selection, and its timeline starts with a welcome card (see
+selection, waiting briefly for a designated channel that is not listed yet, and
+its timeline starts with a welcome card (see
 [local-first launch](channels.md#local-first-launch)).
 
 Owners and admins set it under **Community admin → Welcome**, which appears
