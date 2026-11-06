@@ -515,7 +515,10 @@ it("explains Attention to a new agent and switches it on this device", async () 
   expect(screen.getByText("Give Bo something to keep an eye on.")).toBeTruthy();
   expect(screen.getByText(/Ask Bo to follow a conversation/)).toBeTruthy();
   expect(screen.queryByRole("switch")).toBeNull();
-  expect(screen.getAllByRole("button")).toHaveLength(3);
+  expect(screen.queryByRole("button")).toBeNull();
+  expect(
+    screen.getByRole("list", { name: "Things to ask Bo" }).children,
+  ).toHaveLength(3);
   act(() => {
     snapshot = {
       ...snapshot,

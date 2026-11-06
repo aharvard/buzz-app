@@ -15,8 +15,7 @@
   position: relative;
   width: max-content;
   max-width: 94%;
-  touch-action: pan-y;
-  cursor: grab;
+  cursor: default;
 }
 .attention-empty-piece + .attention-empty-piece {
   margin-block-start: calc(-1 * var(--space-1));
@@ -26,14 +25,6 @@
 }
 .attention-empty-piece:nth-child(3) {
   margin-inline-start: var(--space-4);
-}
-.attention-empty-theme > button {
-  max-width: 100%;
-  min-width: 0;
-}
-.attention-empty-piece:hover,
-.attention-empty-piece:focus-within {
-  z-index: 2;
 }
 .attention-empty-bubble {
   padding: var(--space-2) var(--space-3);
@@ -45,15 +36,6 @@
   overflow-wrap: anywhere;
   text-align: start;
   box-shadow: var(--shadow-xs);
-}
-
-.attention-empty-piece:active {
-  cursor: grabbing;
-}
-@media (prefers-reduced-motion: reduce) {
-  .attention-empty-piece {
-    cursor: default;
-  }
 }
 
 .attention-empty-theme {

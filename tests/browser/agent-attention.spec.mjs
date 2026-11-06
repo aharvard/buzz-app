@@ -278,7 +278,12 @@ test("empty Attention retains its card and clustered prompts in the profile host
     expect(await empty.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
       true,
     );
-    await expect(pile.getByRole("button")).toHaveCount(3);
+    await expect(pile.getByRole("listitem")).toHaveCount(3);
+    await expect(pile.getByRole("button")).toHaveCount(0);
+    await expect(pile.getByRole("listitem").first()).toHaveCSS(
+      "cursor",
+      "default",
+    );
     await page.screenshot({ path: testInfo.outputPath(`empty-${width}.png`) });
   }
 });

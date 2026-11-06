@@ -18,7 +18,6 @@ import { InstructionsMarkdown } from "./InstructionsMarkdown";
 import { title, heading, type Channel } from "./presentation";
 import { problem, useAction } from "./actions";
 import { AttentionEmptyState } from "./AttentionEmptyState";
-import { startAttentionChat } from "./start-attention-chat";
 import { createWatchComponents } from "./WatchRow";
 export { heading, describe } from "./presentation";
 import "./AttentionPage.css";
@@ -314,23 +313,7 @@ export function createAttentionComponents({
             ))}
           </section>
         )}
-        {empty && (
-          <AttentionEmptyState
-            name={agent.name}
-            disabled={action.pending || !session || !scope}
-            onChoose={async (text) => {
-              if (!session || !scope)
-                throw new Error("Connect to this agent’s community first.");
-              await startAttentionChat({
-                agent,
-                session,
-                scope,
-                navigation,
-                text,
-              });
-            }}
-          />
-        )}
+        {empty && <AttentionEmptyState name={agent.name} />}
       </div>
     );
   }
