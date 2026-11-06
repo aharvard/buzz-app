@@ -323,11 +323,30 @@ it.each([undefined, false, true])(
       );
       const user = userEvent.setup();
       await user.click(
-        screen.getByRole("button", { name: "Sign in with Builderlab" }),
+        screen.getByRole("button", { name: "Log in to Builderlab, attention" }),
       );
-      await screen.findByRole("button", {
+      const dialog = await screen.findByRole("dialog", { name: "Builderlab" });
+      await user.click(
+        within(dialog).getByRole("button", { name: "Sign in with Builderlab" }),
+      );
+      await within(dialog).findByRole("button", {
         name: "Identity → Organization sign-in",
       });
+      if (capability !== true) {
+        expect(
+          within(dialog).getByText(
+            "Builderlab remote agents are unavailable for this account.",
+          ),
+        ).toBeVisible();
+      }
+      await user.keyboard("{Escape}");
+      if (capability !== true) {
+        const status = screen.getByText("Unavailable for this account", {
+          selector: ".buzz-preference-row-description span",
+        });
+        await waitFor(() => expect(status).toHaveFocus());
+        expect(status).toHaveAttribute("tabindex", "-1");
+      }
       const type = agents.types()[0];
       if (!type?.remote) throw new Error("Missing Builderlab agent type");
       if (capability === true) {

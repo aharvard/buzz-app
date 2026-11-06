@@ -10,6 +10,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { useSyncExternalStore } from "react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { registerNavigationShortcuts } from "../../app/shortcuts";
 import type {
@@ -59,7 +60,7 @@ function fixture(initial: AgentProviderSnapshot = { readiness: "ready" }) {
       state = next;
       for (const listener of listeners) listener();
     });
-  return { agents, update, check };
+  return { agents, update, check, type };
 }
 
 /** The host's history shortcuts, driving a real memory-history controller. */
@@ -182,3 +183,39 @@ it("keeps status-only attention noninteractive and restores the default setup ac
   );
   expect(await screen.findByRole("dialog", { name: "Echo" })).toBeVisible();
 });
+
+it.each(["Escape", "Close"])(
+  "returns focus to the status after in-dialog sign-in without access and %s",
+  async (dismissal) => {
+    const { agents, update, type } = fixture({
+      readiness: "attention",
+      attentionLabel: "Log in to Echo",
+    });
+    type.provider.DialogBody = () => (
+      <button
+        type="button"
+        onClick={() =>
+          update({
+            readiness: "attention",
+            attentionLabel: null,
+            attentionDescription: "Unavailable for this account",
+          })
+        }
+      >
+        Sign in
+      </button>
+    );
+    const user = userEvent.setup();
+    render(<AgentDefaults agents={agents} />);
+    await user.click(
+      screen.getByRole("button", { name: "Log in to Echo, attention" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    const status = screen.getByText("Unavailable for this account");
+    if (dismissal === "Escape") await user.keyboard("{Escape}");
+    else await user.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(status).toHaveFocus());
+    expect(status).toHaveAttribute("tabindex", "-1");
+    expect(screen.queryByRole("button")).toBeNull();
+  },
+);

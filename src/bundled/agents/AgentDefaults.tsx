@@ -105,8 +105,10 @@ function ProviderDefaults({
     else if (!navigation.signal.aborted)
       onProvider(open ? type.key : undefined);
   };
-  const trigger = useRef<HTMLButtonElement>(null);
+  const focusTarget = useRef<HTMLElement>(null);
   const checking = state.readiness === "checking";
+  const statusOnly =
+    state.readiness === "attention" && state.attentionLabel === null;
   // A recheck must not unmount the focused inline defaults control.
   const [settledReadiness, setSettledReadiness] = useState(state.readiness);
   if (!checking && settledReadiness !== state.readiness) {
@@ -135,18 +137,26 @@ function ProviderDefaults({
         title={type.title}
         icon={Icon && <Icon size={20} />}
         subtitle={
-          state.readiness === "attention"
-            ? state.attentionDescription
-            : undefined
+          statusOnly ? (
+            <span
+              ref={(node) => {
+                focusTarget.current = node;
+              }}
+              tabIndex={-1}
+            >
+              {state.attentionDescription}
+            </span>
+          ) : state.readiness === "attention" ? (
+            state.attentionDescription
+          ) : undefined
         }
         trailing={(description) => {
-          if (state.readiness === "attention" && state.attentionLabel === null)
-            return null;
+          if (statusOnly) return null;
           return (checking ? settledReadiness : state.readiness) === "ready" &&
             DefaultControl ? (
             <div
               ref={(node) => {
-                if (node) trigger.current = node.querySelector("button");
+                if (node) focusTarget.current = node.querySelector("button");
               }}
               className="flex flex-wrap items-center gap-2"
             >
@@ -159,7 +169,9 @@ function ProviderDefaults({
             </div>
           ) : (
             <Button
-              ref={trigger}
+              ref={(node) => {
+                focusTarget.current = node;
+              }}
               size="sm"
               aria-label={`${label}, ${state.readiness}`}
               aria-describedby={description["aria-describedby"]}
@@ -186,7 +198,7 @@ function ProviderDefaults({
       {open && (
         <ProviderDialog
           type={type}
-          finalFocus={trigger}
+          finalFocus={focusTarget}
           visit={routed}
           onClose={() => setOpen(false)}
         />
