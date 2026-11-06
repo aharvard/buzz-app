@@ -133,6 +133,27 @@ it("keeps only the newest cards that no link shows", async () => {
   shown();
 });
 
+it("keeps a pending read past eviction, so a remounted link joins it", async () => {
+  let fail = () => {};
+  const read = vi.fn(
+    (id: string) =>
+      new Promise<AgentCardDraft>((resolve, reject) => {
+        if (id !== "av_slow") return resolve(laggo);
+        fail = () => reject(new Error("offline"));
+      }),
+  );
+  const reads = createAgentCardReads(read);
+  reads.watch("av_slow", () => {})();
+  for (let i = 0; i < 150; i++) reads.watch(`av_${i}`, () => {})();
+  await waitFor(() => expect(reads.get("av_149")?.state).toBe("read"));
+  expect(reads.get("av_slow")?.state).toBe("reading");
+  // The link comes back while its first read is still pending: no second one.
+  reads.watch("av_slow", () => {});
+  expect(read.mock.calls.filter(([id]) => id === "av_slow")).toHaveLength(1);
+  fail();
+  await waitFor(() => expect(reads.get("av_slow")?.state).toBe("failed"));
+});
+
 function setup(read: (id: string) => Promise<AgentCardDraft>) {
   HTMLElement.prototype.showPopover = function () {
     this.style.display = "block";

@@ -57,7 +57,8 @@ type Read =
 const RETRY_MS = 60_000;
 /** A read still pending after this long is stopped, and fails. */
 const READ_TIMEOUT_MS = 15_000;
-/** Cards kept for links no longer shown; a link on screen keeps its own. */
+/** Cards kept for links no longer shown; a link on screen, or a read still
+ * pending, keeps its own. */
 const KEPT = 100;
 
 /** Card reads shared by every link to the same card. Only a link live in a
@@ -72,12 +73,13 @@ export function createAgentCardReads(
   const reads = new Map<string, Read>();
   const listeners = new Map<string, Set<() => void>>();
   const settle = (id: string, next: Read) => {
-    // Newest last, so the oldest unwatched cards go first.
+    // Newest last, so the oldest unwatched cards go first. A pending read
+    // stays until it settles, so a card never has two requests in flight.
     reads.delete(id);
     reads.set(id, next);
-    for (const old of reads.keys()) {
+    for (const [old, kept] of reads) {
       if (reads.size <= KEPT) break;
-      if (!listeners.has(old)) reads.delete(old);
+      if (!listeners.has(old) && kept.state !== "reading") reads.delete(old);
     }
     for (const listener of listeners.get(id) ?? []) listener();
   };
