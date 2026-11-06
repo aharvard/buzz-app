@@ -28,12 +28,14 @@ export type MentionDraft = {
   pending?: readonly PendingMention[];
   document?: ComposerSnapshot;
 };
-// The timeline binds a signed name up to the next character that is not a
-// letter, digit or underscore, so punctuation, quotes and the inline Markdown
-// delimiters *, ~ and ` end a mention here as well: typing `’s` or a closing
-// delimiter after a chip keeps its recipient, however the character arrives.
-// An underscore remains a name suffix, as it does on the timeline, and so does
-// a combining mark, which would change the name's last letter.
+// A name ends at the next character that is not a letter, mark, digit or
+// underscore. The timeline also ends a signed name at punctuation, quotes and
+// the inline Markdown delimiters *, ~ and `, so typing `’s` or a closing
+// delimiter after a chip keeps its recipient here, however the character
+// arrives, and an underscore continues the name in both. A combining mark
+// differs: it changes the name's last letter, so it continues the name here,
+// while the timeline matches only letters, digits and underscores and ends the
+// name before the mark.
 export const mentionBoundary = (text: string, end: number) =>
   end === text.length ||
   !/[\p{L}\p{M}\p{N}_]/u.test(String.fromCodePoint(text.codePointAt(end) ?? 0));

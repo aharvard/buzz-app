@@ -14490,6 +14490,42 @@ it("keeps the separator typed after the words a pending chip extends over, so la
   expect(h.messages.send.mock.calls[0]?.at(-1)).toEqual([mira.pubkey]);
 });
 
+it("extends a chip held on punctuation over the rest of the longer directory name it starts", async () => {
+  // A member name still loading keeps `Pat O` from selecting, so `'` holds
+  // it. The search then finds `Pat O'Brien`; the words typed after the chip
+  // start with the `'` that held it and complete that name.
+  const h = mountDirectoryMention();
+  const pat = { pubkey: "f".repeat(64), name: "Pat O'Brien" };
+  h.setProfiles(new Map([[first.pubkey, { name: "Pat O" }]]));
+  await h.user.type(h.input(), "@Pat O");
+  await screen.findByText("Searching community…");
+  await h.user.keyboard("'");
+  expect(h.input()).toHaveValue("@Pat O'");
+  expect(h.chip("Pat O")).toHaveAttribute("aria-busy", "true");
+  await h.user.keyboard("Brien");
+  await waitFor(() => expect(h.people).toHaveBeenCalled());
+  await h.release({ people: [pat], hasMore: false });
+  await waitFor(() => expect(h.input()).toHaveValue("@Pat O'Brien"));
+  expect(h.chip("Pat O")).toBeNull();
+  expect(h.chip("Pat O'Brien")).toBeNull();
+  expect(h.recipients()).toHaveLength(1);
+  h.submit();
+  expect(screen.getByRole("dialog")).toHaveTextContent(
+    "Pat O'Brien is not in this channel.",
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: /^(Do nothing|Send anyway)$/ }),
+  );
+  await act(async () => {});
+  expect(h.messages.send).toHaveBeenCalledOnce();
+  expect(h.messages.send.mock.calls[0]?.slice(0, 3)).toEqual([
+    "channel",
+    "@Pat O'Brien",
+    [],
+  ]);
+  expect(h.messages.send.mock.calls[0]?.at(-1)).toEqual([pat.pubkey]);
+});
+
 it("selects a longer directory name on the Space that completes it when its page arrived before the first Space", async () => {
   // The slow typist: a known longer name declines the first Space outright
   // (`continuedMention`), the query stays open, and the second Space selects.

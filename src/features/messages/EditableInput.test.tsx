@@ -3635,10 +3635,12 @@ it("keeps a recipient when a quote or apostrophe follows its chip, however the c
       { ...miraExample, start: 0, end: 13 },
     ]);
   }
-  // macOS smart quotes: a plain `'` keydown ended the name, then the system
-  // substitutes `’` for it with no keydown of its own.
-  const h = mount("@Honey");
-  act(() => h.input.insertText("", honey, { start: 0, end: 6 }, "'"));
+  // macOS smart quotes after a picked chip: with no chooser open, the `'`
+  // keystroke is typed natively, then the system substitutes `’` for it with
+  // no keydown of its own.
+  const h = mount();
+  act(() => h.input.insertText("", honey));
+  await h.user.keyboard("{Backspace}'");
   expect(h.input).toHaveValue("@Honey'");
   const after = h.input.querySelector("[data-source]")?.nextSibling;
   if (!(after instanceof Text)) throw new Error("No text after the chip");
