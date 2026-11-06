@@ -642,6 +642,10 @@ test("an unsaved onboarding avatar draft survives an outside press, and closing 
   // The heading is focusable, but the draft keeps focus as well as the popup.
   await heading.click();
   await page.mouse.click(4, 4);
+  // A label focuses its control on click, after the press itself.
+  await page
+    .getByText("Display name", { exact: true })
+    .click({ position: { x: 3, y: 5 } });
   await expect(dialog).toBeVisible();
   await expect(url).toBeFocused();
   await expect(url).toHaveValue("https://images.example/avatar.png");
@@ -670,43 +674,18 @@ test("an unsaved onboarding avatar draft survives an outside press, and closing 
   await expect(add).toBeFocused();
 });
 
-test("the picture URL error waits for blur or Done, then clears as the URL is fixed", async ({
+// The full validation matrix lives in AvatarEditor.test.tsx; this checks the
+// wiring in a real browser, where Tab moves focus out of the field.
+test("the picture URL error waits for the field to lose focus", async ({
   page,
 }) => {
-  const { dialog } = await onboardingAvatar(page);
+  await onboardingAvatar(page);
   const url = page.getByRole("textbox", { name: "Picture URL (optional)" });
-  const done = page.getByRole("button", { name: "Done", exact: true });
   const message = /Use an HTTPS image URL/;
   await url.pressSequentially("h");
   await expect(url).not.toHaveAccessibleDescription(message);
-  await expect(url).not.toHaveAttribute("aria-invalid", "true");
-  // Enter is an attempt: it shows the error and keeps the invalid URL unapplied.
-  await url.press("Enter");
+  await url.press("Tab");
   await expect(url).toHaveAccessibleDescription(message);
-  await expect(dialog).toBeVisible();
-  await url.fill("https://images.example/avatar.png");
-  await expect(url).not.toHaveAccessibleDescription(message);
-  await url.fill("http://images.example/avatar.png");
-  await expect(url).toHaveAccessibleDescription(message);
-  await url.fill("");
-  await expect(url).not.toHaveAccessibleDescription(message);
-
-  // Reopen for a fresh draft: blur reveals the error, and Done cannot apply it.
-  await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "Add avatar", exact: true }).click();
-  await url.pressSequentially("ftp://x");
-  await expect(url).not.toHaveAccessibleDescription(message);
-  await page.getByRole("tab", { name: "Image", exact: true }).focus();
-  await expect(url).toHaveAccessibleDescription(message);
-  await url.fill("");
-  await url.pressSequentially("ftp://x");
-  await done.click();
-  await expect(dialog).toBeVisible();
-  await expect(url).toBeFocused();
-  await expect(url).toHaveAccessibleDescription(message);
-  await expect(
-    page.getByRole("button", { name: "Add avatar", exact: true }),
-  ).toHaveCount(0);
 });
 
 test("the onboarding display name keeps nickname autofill without spellcheck", async ({

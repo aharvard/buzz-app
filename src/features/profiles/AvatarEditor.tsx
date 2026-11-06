@@ -82,6 +82,12 @@ const colors = [
   "#000000",
 ];
 
+/** Not the popup, nor the emoji preview it moves from outside the popup. */
+const outsideEditor = (popup: HTMLElement | null, target: EventTarget | null) =>
+  target instanceof Element &&
+  !popup?.contains(target) &&
+  !target.closest("[data-emoji-position]");
+
 /** One draft editor for humans and agents; the enclosing form owns profile Save. */
 export function AvatarEditor(props: Props) {
   const setupAnchor = useRef<HTMLDivElement>(null);
@@ -116,20 +122,25 @@ export function AvatarEditor(props: Props) {
   }, [open]);
   // Only Done applies a draft, so a press elsewhere keeps the popup open
   // (see onOpenChange) and its focus: once Base UI sees focus leave, it skips
-  // returning focus on the next close, even when that dismissal was cancelled.
+  // returning focus on the next close, even when that dismissal was cancelled,
+  // and Escape from outside would also dismiss an enclosing dialog. A press
+  // focuses on mousedown, and a label also focuses its control on click.
   useEffect(() => {
     if (!open || !unsaved || props.inlinePicker) return;
     const keepFocus = (event: MouseEvent) => {
-      const { target } = event;
       if (
-        target instanceof Element &&
-        !popupElement.current?.contains(target) &&
-        !target.closest("[data-emoji-position]")
+        outsideEditor(popupElement.current, event.target) &&
+        (event.type === "mousedown" ||
+          (event.target as Element).closest("label"))
       )
         event.preventDefault();
     };
     document.addEventListener("mousedown", keepFocus, true);
-    return () => document.removeEventListener("mousedown", keepFocus, true);
+    document.addEventListener("click", keepFocus, true);
+    return () => {
+      document.removeEventListener("mousedown", keepFocus, true);
+      document.removeEventListener("click", keepFocus, true);
+    };
   }, [open, unsaved, props.inlinePicker]);
   const draft = open && (
     <AvatarDraft
@@ -155,20 +166,19 @@ export function AvatarEditor(props: Props) {
           // An inline picker stays open, so Escape belongs to its dialog.
           if (props.inlinePicker && details.reason === "escape-key")
             details.allowPropagation();
-          // Pressing or focusing the emoji preview moves the emoji; the
-          // preview is part of the editor even outside its popup.
+          // Pressing or focusing the emoji preview moves the emoji, so it
+          // never dismisses. An unsaved draft survives a press elsewhere.
+          // Escape still discards it, and so does tabbing out onto a guard.
           const { event } = details;
           const target =
             event instanceof FocusEvent ? event.relatedTarget : event.target;
-          // An unsaved draft survives a press elsewhere. Escape still
-          // discards it, and so does tabbing out onto a focus guard.
           if (
             (details.reason === "outside-press" ||
               details.reason === "focus-out") &&
             target instanceof Element &&
             (target.closest("[data-emoji-position]") ||
               (unsaved &&
-                !popupElement.current?.contains(target) &&
+                outsideEditor(popupElement.current, target) &&
                 !target.closest("[data-base-ui-focus-guard]")))
           )
             return details.cancel();
