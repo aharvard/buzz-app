@@ -585,7 +585,9 @@ available rather than silently discarding it.
   A verified existing DM stays available if
   agent discovery fails. If a replacement save fails, the last confirmed Bestie
   remains selected and the confirmation offers another attempt. Being the bestie
-  does not prove an agent is ready or running.
+  does not prove an agent is ready or running. **Remove as bestie** in the
+  Bestie's card menu asks, then saves no Bestie to the account. It works on any
+  device, including one where the agent doesn't run.
 - With the **Bestie** plugin on and no saved choice, **Choose your bestie agent**
   offers a searchable agent picker and **Create agent**. Choosing a known remote
   agent, including one created through Builderlab, asks for confirmation:
