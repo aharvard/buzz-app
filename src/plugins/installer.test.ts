@@ -339,6 +339,23 @@ it("keeps unavailable configuration distinct from absence and emits presence cha
   stop();
 });
 
+it("stops notifying when a status subscription is explicitly removed", async () => {
+  const { as, set } = setup({ plugins: [] });
+  const installer = await as("example.market");
+  const listener = vi.fn();
+  const stop = installer.subscribeInstallationStatus(
+    "example.plugin",
+    listener,
+  );
+
+  set(ready([info("example.plugin")]));
+  expect(listener).toHaveBeenCalledOnce();
+  stop();
+  set(ready([]));
+  set(ready([info("example.plugin")]));
+  expect(listener).toHaveBeenCalledOnce();
+});
+
 it("stops notifying when the calling plugin is disposed", async () => {
   const { as, set, fibers } = setup({ plugins: [] });
   const installer = await as("example.market");
