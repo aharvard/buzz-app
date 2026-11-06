@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { profileTarget } from "../profiles/target";
 import type { RelaySession } from "../relay/session";
 import type { CommunityReader } from "./service";
@@ -13,7 +13,21 @@ import {
   WelcomeMessage,
 } from "./WelcomeCard";
 
-afterEach(cleanup);
+beforeEach(() => {
+  // jsdom has no ResizeObserver; the card measures whether its body scrolls.
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+});
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const channel = "11111111-1111-4111-8111-111111111111";
 const scope = `https://primary.example:${"0".repeat(64)}`;

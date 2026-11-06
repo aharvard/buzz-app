@@ -125,6 +125,14 @@ import { channelHasUnread } from "./useSidebarFilters";
 import { inFieldOutsideComposer } from "./conversation-rows";
 import styles from "./Channels.module.css";
 import type { CommunityReader } from "../../features/communities/service";
+import {
+  PinnedWelcome,
+  WelcomeMessage,
+} from "../../features/communities/WelcomeCard";
+import {
+  recordWelcomeFirstOpen,
+  usePinnedWelcome,
+} from "../../features/communities/welcome-pin";
 import type { CommunityInfo } from "../../features/communities/api";
 import { communityFromScope } from "../../features/relay/gifs";
 import { avatarMedia } from "../../shared/avatar-source";
@@ -417,7 +425,10 @@ function ChannelWorkspace({
     // Start the optional catalog afterward so opening Messages cannot strand it.
     if (list.status === "ready") queries.channelKit.ensure();
   }, [queries, list.status]);
+  // The join notice's height, or the pinned welcome's: never both at once.
   const [joinNoticeHeight, setJoinNoticeHeight] = useState(0);
+  // Before any passive effect, so the pinned welcome's first read has it.
+  useLayoutEffect(() => recordWelcomeFirstOpen(scope), [scope]);
   const [contentReadyChannel, setContentReadyChannel] = useState<string>();
   const [composerFocus, setComposerFocus] = useState(0);
   const [trackSoloMove, soloMoveNotices] = useSoloMoveRecovery(queries);
@@ -2226,6 +2237,18 @@ function ChannelWorkspace({
     (current.archived ||
       (current.readOnly &&
         (!current.cached || current.viewerRole === "guest")));
+  const composes =
+    !!current &&
+    !current.archived &&
+    current.viewerRole !== "guest" &&
+    (!current.readOnly || !!current.cached);
+  const welcome = usePinnedWelcome({
+    session: queries,
+    scope,
+    channelId: current?.id,
+    // A member of the welcome channel, with its composer.
+    member: !!current?.landing && current.channelType === "stream" && composes,
+  });
   useChannelHistoryFocus(
     historyContainer,
     navigation,
@@ -2264,10 +2287,6 @@ function ChannelWorkspace({
             revealMessageId={
               sent?.channelId === current.id ? sent.id : undefined
             }
-            landing={current.landing && current.channelType === "stream"}
-            welcomeMessage={current.welcome}
-            welcomeTitle={current.welcomeTitle}
-            communities={communities}
           />
         ) : noChannels ? (
           <div className={styles.failed}>
@@ -2328,6 +2347,30 @@ function ChannelWorkspace({
             onHeightChange={setJoinNoticeHeight}
           />
         )}
+        {current && welcome.shown && (
+          <PinnedWelcome
+            key={`welcome:${current.id}`}
+            communities={communities}
+            scope={scope}
+            title={current.welcomeTitle}
+            onDismiss={(focused) => {
+              welcome.dismiss();
+              // Dismiss leaves with the card; typing is what comes next.
+              if (focused) setComposerFocus((value) => value + 1);
+            }}
+            onHeightChange={setJoinNoticeHeight}
+          >
+            <WelcomeMessage
+              message={current.welcome}
+              session={queries}
+              scope={scope}
+              channelId={current.id}
+              extensions={extensions}
+              onOpenLink={openLink}
+              canOpenLink={canOpenLink}
+            />
+          </PinnedWelcome>
+        )}
       </section>
       {!cached && (
         <LiveStatus
@@ -2355,41 +2398,38 @@ function ChannelWorkspace({
           }
         />
       )}
-      {current &&
-        !current.archived &&
-        current.viewerRole !== "guest" &&
-        (!current.readOnly || current.cached) && (
-          <ConversationComposer
-            key={`composer:${current.id}`}
-            onFocusedRemoval={focusArchivedHistory}
-            autoFocus={
-              // Remote unarchive restores controls within the reader's current visit.
-              !(continuingVisit && committedVisit.current?.archived) &&
-              // Conversion remounts the body, but isn't a new conversation opening.
-              // Its dialog hands off focus after closing and releasing modality.
-              !(
-                continuingVisit &&
-                committedVisit.current?.channelType === "solo" &&
-                current.channelType !== "solo"
-              ) &&
-              // The bound request arrives after the composer's first render.
-              (navigation?.focus ?? navigator?.snapshot().attempt.focus) !==
-                "preserve" &&
-              !current.readOnly &&
-              !requestedMessage &&
-              !requestedThread &&
-              !routedThread
-            }
-            trailingTool={
-              solo ? (
-                <WorkspaceControl session={queries} channelId={current.id} />
-              ) : undefined
-            }
-            onSend={onComposerSend}
-            onCommand={handleCommand}
-            focusRequest={composerFocus}
-          />
-        )}
+      {current && composes && (
+        <ConversationComposer
+          key={`composer:${current.id}`}
+          onFocusedRemoval={focusArchivedHistory}
+          autoFocus={
+            // Remote unarchive restores controls within the reader's current visit.
+            !(continuingVisit && committedVisit.current?.archived) &&
+            // Conversion remounts the body, but isn't a new conversation opening.
+            // Its dialog hands off focus after closing and releasing modality.
+            !(
+              continuingVisit &&
+              committedVisit.current?.channelType === "solo" &&
+              current.channelType !== "solo"
+            ) &&
+            // The bound request arrives after the composer's first render.
+            (navigation?.focus ?? navigator?.snapshot().attempt.focus) !==
+              "preserve" &&
+            !current.readOnly &&
+            !requestedMessage &&
+            !requestedThread &&
+            !routedThread
+          }
+          trailingTool={
+            solo ? (
+              <WorkspaceControl session={queries} channelId={current.id} />
+            ) : undefined
+          }
+          onSend={onComposerSend}
+          onCommand={handleCommand}
+          focusRequest={composerFocus}
+        />
+      )}
     </div>
   );
   const workspace = (
@@ -2435,9 +2475,10 @@ function ChannelWorkspace({
           className={`${styles.conversation}${solo ? ` ${styles.soloConversation}` : ""}`}
           style={
             {
-              "--channel-preview-inset": channelNotice
-                ? `calc(${joinNoticeHeight}px + var(--space-3))`
-                : "0px",
+              "--channel-preview-inset":
+                channelNotice || welcome.shown
+                  ? `calc(${joinNoticeHeight}px + var(--space-3))`
+                  : "0px",
             } as React.CSSProperties
           }
           data-attachment-drop-zone=""

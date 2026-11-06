@@ -17,11 +17,13 @@ community where you are an owner or admin.
 
 On relays that support it, **Settings → Community admin → Welcome** lets an
 owner or admin choose the public channel new members join and open first, and
-the title and message shown at the start of that channel. The message editor
-has the composer's formatting toolbar and saves Markdown; pasted channel and
+the title and message of the welcome card pinned above that channel's
+composer for new members. The message editor has the composer's formatting
+toolbar and saves Markdown; pasted channel and
 message links show with the same link presentation as in messages, through
 the conversation's link renderers. Saving moves the welcome to the chosen
-channel; people already in the community keep their channels.
+channel; people already in the community keep their channels. Editing the
+welcome does not show the card again to anyone who dismissed it.
 
 Below that, **Also add new members to** lists the starter channels, which new
 members join too: **Add a channel** searches other open channels, and **Remove**

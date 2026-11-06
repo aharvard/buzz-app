@@ -1,4 +1,11 @@
-import { useId, useSyncExternalStore, type ReactNode } from "react";
+import {
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import type { ConversationExtensions } from "../conversation/contracts";
 import { MessageMarkdown } from "../messages/MessageMarkdown";
 import { useReferenceDirectory } from "../messages/ReferenceText";
@@ -7,6 +14,7 @@ import type { RelaySession } from "../relay/session";
 import { communityPresentation } from "./community-icon";
 import { communityDestination } from "./destination";
 import type { CommunityReader } from "./service";
+import { Button } from "../../shared/design-system/ui/Button";
 import styles from "./WelcomeCard.module.css";
 
 /** Shown when the community has not set its own welcome message. */
@@ -46,25 +54,62 @@ export function useDefaultWelcomeTitle(
   return defaultWelcomeTitle(name);
 }
 
-/** The welcome channel's introduction; a timeline start, never a message. */
+/** The welcome channel's introduction, never a message. A long message
+ * scrolls within the card, which is then reachable by keyboard. */
 export function WelcomeCard({
   title,
   children,
   level = 2,
+  onDismiss,
 }: {
   title: string;
   /** The rendered message, usually a `WelcomeMessage`. */
   children: ReactNode;
   level?: 2 | 3 | 4;
+  /** Offers Dismiss; `focused` says whether focus was in the card. */
+  onDismiss?: ((focused: boolean) => void) | undefined;
 }) {
   const id = useId();
   const Heading = `h${level}` as "h2" | "h3" | "h4";
+  const card = useRef<HTMLElement>(null);
+  const body = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const [scrolls, setScrolls] = useState(false);
+  useLayoutEffect(() => {
+    const scroller = body.current;
+    if (!scroller || !content.current) return;
+    const measure = () =>
+      setScrolls(scroller.scrollHeight > scroller.clientHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(scroller);
+    observer.observe(content.current);
+    return () => observer.disconnect();
+  }, []);
   return (
-    <section aria-labelledby={id} className={styles.card}>
-      <Heading id={id} className={`${styles.title} text-label`}>
-        {title}
-      </Heading>
-      <div className={styles.body}>{children}</div>
+    <section ref={card} aria-labelledby={id} className={styles.card}>
+      <div className={styles.header}>
+        <Heading id={id} className={`${styles.title} text-label`}>
+          {title}
+        </Heading>
+        {onDismiss && (
+          <Button
+            size="sm"
+            onClick={() =>
+              onDismiss(!!card.current?.contains(document.activeElement))
+            }
+          >
+            Dismiss
+          </Button>
+        )}
+      </div>
+      <div
+        ref={body}
+        className={styles.body}
+        tabIndex={scrolls ? 0 : undefined}
+      >
+        <div ref={content}>{children}</div>
+      </div>
     </section>
   );
 }
@@ -132,6 +177,7 @@ export function CommunityWelcomeCard({
   scope,
   title,
   children,
+  onDismiss,
 }: {
   communities?: CommunityReader | undefined;
   /** The relay session's partition. */
@@ -139,7 +185,40 @@ export function CommunityWelcomeCard({
   /** Custom title; absent shows the default. */
   title?: string | undefined;
   children: ReactNode;
+  onDismiss?: ((focused: boolean) => void) | undefined;
 }) {
   const defaultTitle = useDefaultWelcomeTitle(communities, scope);
-  return <WelcomeCard title={title ?? defaultTitle}>{children}</WelcomeCard>;
+  return (
+    <WelcomeCard title={title ?? defaultTitle} onDismiss={onDismiss}>
+      {children}
+    </WelcomeCard>
+  );
+}
+
+/** The welcome card pinned over the end of the welcome channel's history,
+ * above the composer, as a channel's join notice is. It reports its height so
+ * the history can leave the last messages clear of it, and never takes focus. */
+export function PinnedWelcome({
+  onHeightChange,
+  ...card
+}: Parameters<typeof CommunityWelcomeCard>[0] & {
+  onDismiss(focused: boolean): void;
+  onHeightChange(height: number): void;
+}) {
+  const pinned = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = pinned.current;
+    if (!element) return;
+    const measure = () =>
+      onHeightChange(Math.ceil(element.getBoundingClientRect().height));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [onHeightChange]);
+  return (
+    <div ref={pinned} className={styles.pinned}>
+      <CommunityWelcomeCard {...card} />
+    </div>
+  );
 }

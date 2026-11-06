@@ -424,7 +424,7 @@ it("opens the community's auto-join channel first when nothing is saved", async 
   await screen.findByRole("textbox", { name: "Message #Beta" });
 });
 
-it("opens the community's welcome channel before its auto-join channel and starts it with the welcome", async () => {
+it("opens the community's welcome channel before its auto-join channel and pins the welcome above the composer", async () => {
   const viewer = keypair(),
     authority = keypair();
   workspace(
@@ -445,16 +445,88 @@ it("opens the community's welcome channel before its auto-join channel and start
     viewer,
     authority,
   );
-  await screen.findByRole("textbox", { name: "Message #Beta" });
+  const composer = await screen.findByRole("textbox", {
+    name: "Message #Beta",
+  });
+  // This viewer has written nothing on the relay, so they are new here.
   const welcome = await screen.findByRole("region", {
     name: "Hello, newcomer",
   });
   // The message is Markdown, rendered as a message body is.
   expect(welcome).toHaveTextContent("Say hi and introduce yourself.");
   expect(welcome.querySelector("strong")).toHaveTextContent("hi");
-  // The welcome is not a message and replaces the empty-conversation notice.
-  expect(welcome.closest("[data-message-id]")).toBeNull();
-  expect(screen.queryByText("No messages yet.")).toBeNull();
+  // Pinned beside the history, not a row in it; an empty channel says so.
+  expect(welcome.closest("[data-message-scroller]")).toBeNull();
+  expect(await screen.findByText("No messages yet.")).toBeVisible();
+  // It never takes focus, and the history leaves room for it.
+  expect(welcome).not.toContainElement(document.activeElement as HTMLElement);
+  const conversation = composer.closest<HTMLElement>(
+    "[data-attachment-drop-zone]",
+  );
+  expect(
+    conversation?.style.getPropertyValue("--channel-preview-inset"),
+  ).toMatch(/^calc\(/);
+  await userEvent.click(
+    within(welcome).getByRole("button", { name: "Dismiss" }),
+  );
+  expect(screen.queryByRole("region", { name: "Hello, newcomer" })).toBeNull();
+  expect(conversation?.style.getPropertyValue("--channel-preview-inset")).toBe(
+    "0px",
+  );
+  // Dismiss leaves with the card, so focus goes on to the composer.
+  await vi.waitFor(() => expect(composer).toHaveFocus());
+});
+
+it("pins no welcome for a member who wrote on the relay before this device first opened it", async () => {
+  const viewer = keypair(),
+    authority = keypair();
+  const reads: (readonly ReadFilter[])[] = [];
+  workspace(
+    [
+      roster(authority, "beta", [viewer.pubkey]),
+      metadata(authority, "beta", "Beta", undefined, [
+        ["t", "stream"],
+        ["landing"],
+      ]),
+      signed(viewer, {
+        kind: 9,
+        content: "Hi all",
+        created_at: Math.floor(Date.now() / 1000) - 86_400,
+        tags: [["h", "beta"]],
+      }),
+    ],
+    viewer,
+    authority,
+    (filters) => {
+      reads.push(filters);
+      return undefined;
+    },
+  );
+  await screen.findByRole("textbox", { name: "Message #Beta" });
+  // One read over every kind and channel, for this viewer's events from
+  // before the first open less ten minutes.
+  await vi.waitFor(() =>
+    expect(
+      readView(
+        `https://relay.test:${viewer.pubkey}`,
+        "welcome-earlier-activity",
+        undefined,
+      ),
+    ).toBe(true),
+  );
+  const asked = reads.filter((filters) =>
+    filters.some((filter) => !filter.kinds && !filter.ids),
+  );
+  expect(asked).toHaveLength(1);
+  expect(asked[0]).toStrictEqual([
+    {
+      authors: [viewer.pubkey],
+      limit: 1,
+      until:
+        readView<number>("https://relay.test", "welcome-first-open", 0) - 600,
+    },
+  ]);
+  expect(screen.queryByRole("region", { name: "Welcome" })).toBeNull();
 });
 
 it("waits for the welcome channel's metadata before opening an auto-join channel listed first", async () => {
@@ -510,7 +582,7 @@ it("waits for the welcome channel's metadata before opening an auto-join channel
     release();
   }
   await screen.findByRole("textbox", { name: "Message #Beta" });
-  expect(screen.getByRole("region", { name: "Welcome" })).toBeVisible();
+  expect(await screen.findByRole("region", { name: "Welcome" })).toBeVisible();
   expect(screen.queryByRole("textbox", { name: "Message #Alpha" })).toBeNull();
 });
 
@@ -649,7 +721,7 @@ it("opens the welcome channel as soon as it arrives while the opening state wait
   );
   owner.session.channels.refreshList?.();
   await screen.findByRole("textbox", { name: "Message #Beta" });
-  expect(screen.getByRole("region", { name: "Welcome" })).toBeVisible();
+  expect(await screen.findByRole("region", { name: "Welcome" })).toBeVisible();
   expect(
     screen.queryByRole("heading", { name: "You’re not in any channels yet" }),
   ).toBeNull();
@@ -731,7 +803,7 @@ it("waits for the welcome channel the relay names rather than open a DM, then op
   );
   owner.session.channels.refreshList?.();
   await screen.findByRole("textbox", { name: "Message #Beta" });
-  expect(screen.getByRole("region", { name: "Welcome" })).toBeVisible();
+  expect(await screen.findByRole("region", { name: "Welcome" })).toBeVisible();
 });
 
 it("opens a channel the person joined themselves at once, though the relay names an unlisted welcome channel", async () => {
@@ -988,7 +1060,7 @@ it("opens a welcome channel confirmed after the starter channel it opened first"
     entry: { target: { kind: "conversation", channelId: "beta" } },
   });
   await screen.findByRole("textbox", { name: "Message #Beta" });
-  expect(screen.getByRole("region", { name: "Welcome" })).toBeVisible();
+  expect(await screen.findByRole("region", { name: "Welcome" })).toBeVisible();
   expect(screen.queryByRole("textbox", { name: "Message #Alpha" })).toBeNull();
 });
 

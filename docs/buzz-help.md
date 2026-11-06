@@ -255,9 +255,13 @@ revokes all of them, and a pairing unused for 30 days expires.
   the person asking may have different channel access. A link alone never
   grants access.
 - **Welcome channel**: on relays that support it, a community can choose a
-  public channel that new members join and open first. It starts with a
-  welcome card for everyone, showing the community's message or a default one.
-  The card isn't a message: it can't be replied to, deleted or dismissed. While
+  public channel that new members join and open first. There, a new member
+  sees a welcome card above the message box, showing the community's message
+  or a default one. Choose **Dismiss** to hide it on this computer; it stays
+  hidden even if the message changes. People who had already written in the
+  community never see it, though someone who has never posted may see it once
+  on each new device. The card isn't a message: it can't be replied to or
+  deleted. While
   a new member's channels arrive, Messages says it is opening them, and waits a
   few seconds for the welcome channel rather than open another conversation
   first. If none arrive, **Try again** checks for them again; a welcome channel

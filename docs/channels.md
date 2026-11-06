@@ -1317,12 +1317,9 @@ arrives within ten seconds of the channel list first loading replaces it, unless
 the viewer has clicked or typed anywhere in the window or opened anything else,
 Settings included, meanwhile. Focus the viewer has moved outside Messages stays
 where it is.
-The welcome channel's timeline starts with a
-welcome card for every viewer, even with no messages: the community name and its
-custom message, or the default one. The card is not a message, so it has no
-unread state, actions or dismissal. While the channel list or its metadata is
-still loading, Messages shows **Opening your channels…** instead of the blank
-selection view. A list with no channel to open keeps that state for up to ten
+A new member also sees the [pinned welcome](#pinned-welcome) there. While the
+channel list or its metadata is still loading, Messages shows **Opening your
+channels…** instead of the blank selection view. A list with no channel to open keeps that state for up to ten
 seconds, once per community visit, since the relay can still be adding a new
 member to the welcome channel; a channel that arrives meanwhile opens at once. A
 returning member with no channels left waits the same once. A relay whose NIP-11
@@ -1351,6 +1348,54 @@ record, so the relay does not add the person back. The client only reads the
 flag; it never sends a join on a member's behalf. The welcome channel is joined
 only at a person's first entry, on either path: moving the designation never adds
 anyone who already entered.
+
+### Pinned welcome
+
+The welcome is a card pinned over the end of the welcome channel's history,
+directly above the composer, in the place a preview's join notice takes. It is
+never a message or a row in the timeline, so it is there however long the
+history is, and an empty channel shows its usual empty notice beside it. The
+history's end grows by the card's height, as for the join notice, so the last
+messages scroll clear of it, and a long message scrolls within the card. The
+card is a region named by its title: the custom title, or the default ("Welcome
+to" the community's configured name, else "Welcome"). Below it, the custom
+message or the default one renders as a message body does, with its channel,
+message and identity links. It never takes focus on mount; **Dismiss** removes
+it and hands focus to the composer if focus was in the card.
+
+It shows only while all four of these hold:
+
+1. The open channel is the community's welcome channel (its relay-signed
+   `39000` carries `landing`), and the viewer is a member with its composer.
+2. This device has a first-open time T for the community: unix seconds, written
+   the first time Messages opens the community on this device, and on an
+   existing install the first time after upgrading. It is view state scoped by
+   the community origin alone, with no viewer, under `welcome-first-open`, and
+   is never replaced.
+3. The relay has no event by the viewer from before T less ten minutes. One
+   read, through the session's snapshot read (the HTTP `/query` bridge on both
+   hosts), asks `{ "authors": [viewer], "until": T - 600, "limit": 1 }`, with no
+   kinds and no `#h`, so any kind in any channel the relay lets the viewer read
+   counts, profiles and preferences included. An event means an existing member.
+   Because of the ten minutes, a newcomer's own events from joining, such as a
+   profile set up just before the app opened, do not count. The answer is kept
+   per device under `welcome-earlier-activity`, scoped by origin and viewer, so
+   another identity on the same device asks for itself. The session reader and
+   the browser broker admit no other filter without kinds or IDs.
+4. The card has not been dismissed on this device: `welcome-dismissed:<channel
+   id>`, scoped by origin alone. A new title or message from an admin does not
+   bring it back.
+
+Nothing shows while the read is pending. A read that fails, whether refused,
+timed out, offline or without a session, is no answer: nothing is kept and the
+next visit to the welcome channel asks again, so a network failure never shows
+the card to an existing member.
+
+These are accepted trade-offs. Someone with no events at all, such as a lurker,
+looks new on each new device and sees the card once there. Dismissal is per
+device, and shared by the identities on it, as T is. A lurker already in a
+channel that becomes the welcome channel, such as `#general`, sees the card
+once per device after the upgrade.
 
 A cached roster can display previously downloaded, reverified history for up to
 24 hours. It cannot authorize head/history reads, unread evidence, typing or
