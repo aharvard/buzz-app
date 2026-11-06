@@ -173,11 +173,13 @@ export function ChannelsPage({
   // Each attempt republishes the connection, so reading it here stays current.
   const visitSettled = navigator.snapshot().status !== "opening";
   // Messages omits the promoted Bestie DM's row, so a pending visit to it that
-  // Bestie can present opens there instead, before this page presents it.
+  // Bestie can present opens there instead, before this page presents it. A
+  // settled visit stays, even while another opening keeps this page shown.
   const bestieDm = useBestieConversation(session.session);
   const bestie =
     !visitSettled &&
-    navigation?.target.kind === "conversation" &&
+    navigator.snapshot().attempt.entry.id === navigation?.entryId &&
+    navigation.target.kind === "conversation" &&
     navigation.target.channelId === bestieDm
       ? bestieConversationTarget(navigation.target)
       : undefined;
