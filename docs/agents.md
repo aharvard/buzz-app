@@ -89,7 +89,8 @@ a retryable error without reading notifications. Items require observed, ready
 unread evidence and a ready Inbox feed with no unresolved edit/deletion targets.
 Stale, failed, loading or retired evidence returns a retryable error, never a
 successful partial/empty list. Loading, failed or stale remote read-marker sync
-also withholds results. The next call retries failed/stale remote marker reads and
+also withholds results, even when a local unread action has changed the publication
+status. The next call retries outstanding remote marker observation and
 notification read errors through the existing owners. Valid local-only and pending
 publication states remain usable; remote reconciliation is not required on every
 host. The captured runner lifetime is checked after the read, so retirement or

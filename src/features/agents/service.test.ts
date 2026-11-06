@@ -3063,6 +3063,7 @@ describe("delegated Inbox reads", () => {
       {
         ...(maxDiscoveryBytes === undefined ? {} : { maxDiscoveryBytes }),
         readStateFloor: () => 0,
+        readPublisherLock: async (_signal, work) => work(),
         readStateStorage: {
           async update(change) {
             journal = readJournal(change(journal), viewer);
@@ -3597,59 +3598,110 @@ describe("delegated Inbox reads", () => {
     }
   });
 
-  it("rejects failed read-marker sync, then retries and applies the remote read frontier", async () => {
-    const marker = event("f", {
-      pubkey: viewer,
-      kind: 30078,
-      tags: [
-        ["d", `read-state:${"f".repeat(32)}`],
-        ["t", "read-state"],
-      ],
-      content: "host-encrypted read frontier",
-    });
-    const f = await inboxSetup(true, undefined, {
-      decode: async (events) =>
-        events.map(({ id }) => ({
-          eventId: id,
-          blob: {
-            v: 1,
-            client_id: "other-device",
-            contexts: { [channel]: 100 },
-          },
-        })),
-    });
-    let fail = true;
-    f.query.mockImplementation(async (filters) => {
-      if (filters[0]?.kinds?.includes(30078)) {
-        if (fail) throw new Error("Read-marker enumeration failed");
-        return [marker];
-      }
-      return f.healthyQuery(filters);
-    });
-    const markerReads = () =>
-      f.query.mock.calls.filter(([filters]) =>
-        filters[0]?.kinds?.includes(30078),
-      ).length;
-    try {
-      await expect(f.readInbox()).rejects.toThrow(/Inbox.*retry/i);
-      expect(f.owner.session.unread.inbox()).toMatchObject({
-        status: "ready",
-        freshness: "observed",
-        items: [expect.objectContaining({ unreadCount: 1 })],
+  it.each(["unchanged", "local unread", "local unread after observation"])(
+    "retries failed read-marker sync with %s and applies the remote read frontier",
+    async (intent) => {
+      const marker = event("f", {
+        pubkey: viewer,
+        kind: 30078,
+        tags: [
+          ["d", `read-state:${"f".repeat(32)}`],
+          ["t", "read-state"],
+        ],
+        content: "host-encrypted read frontier",
       });
-      expect(f.owner.session.unread.sync()).toMatchObject({ status: "error" });
-      const before = markerReads();
-      fail = false;
-      const result = JSON.parse((await f.readInbox()) as string);
-      expect(markerReads()).toBe(before + 1);
-      expect(result).toEqual([
-        expect.objectContaining({ preview: "OLD BODY", unread_count: 0 }),
-      ]);
-      expect(f.owner.session.unread.sync().status).toBe("reconciled");
-    } finally {
-      await f.close();
-    }
-  });
+      const f = await inboxSetup(true, undefined, {
+        // Local manual unread does not publish a frontier on a sync-capable host.
+        sign: async () => {
+          throw new Error("Unexpected marker signing");
+        },
+        publish: async () => {
+          throw new Error("Unexpected marker publication");
+        },
+        decode: async (events) =>
+          events.map(({ id }) => ({
+            eventId: id,
+            blob: {
+              v: 1,
+              client_id: "other-device",
+              contexts: { [channel]: 100 },
+            },
+          })),
+      });
+      let fail = true;
+      let observed = false;
+      f.query.mockImplementation(async (filters) => {
+        if (filters[0]?.kinds?.includes(30078)) {
+          if (fail) throw new Error("Read-marker enumeration failed");
+          return observed ? [marker] : [];
+        }
+        return f.healthyQuery(filters);
+      });
+      const markerReads = () =>
+        f.query.mock.calls.filter(([filters]) =>
+          filters[0]?.kinds?.includes(30078),
+        ).length;
+      try {
+        if (intent === "local unread after observation") {
+          fail = false;
+          expect(
+            JSON.parse((await f.readInbox()) as string)[0]?.unread_count,
+          ).toBe(1);
+          expect(f.owner.session.unread.sync().completeness).toBe("bounded");
+          fail = true;
+          await f.owner.session.unread.retrySync();
+        }
+        await expect(f.readInbox()).rejects.toThrow(/Inbox.*retry/i);
+        expect(f.owner.session.unread.inbox()).toMatchObject({
+          status: "ready",
+          freshness: "observed",
+          items: [expect.objectContaining({ unreadCount: 1 })],
+        });
+        expect(f.owner.session.unread.sync()).toMatchObject({
+          status: "error",
+        });
+        if (intent !== "unchanged") {
+          await f.owner.session.unread.markUnreadLocal({
+            kind: "channel",
+            channelId: f.privateDm,
+          });
+          expect(f.owner.session.unread.sync().status).toBe("pending");
+          // A previously successful observation must not disguise a later failure either.
+          if (intent === "local unread after observation")
+            await expect(f.readInbox()).rejects.toThrow(/Inbox.*retry/i);
+        }
+        const before = markerReads();
+        fail = false;
+        observed = true;
+        const result = JSON.parse((await f.readInbox()) as string);
+        expect(markerReads()).toBe(before + 1);
+        expect(result).toEqual([
+          expect.objectContaining({ preview: "OLD BODY", unread_count: 0 }),
+        ]);
+        expect(f.owner.session.unread.sync().status).toBe("reconciled");
+        if (intent !== "unchanged") {
+          await f.owner.session.unread.markUnreadLocal({
+            kind: "channel",
+            channelId: f.privateDm,
+          });
+          expect(f.owner.session.unread.sync().status).toBe("pending");
+          const healthyReads = markerReads();
+          expect(
+            JSON.parse((await f.readInbox()) as string)[0]?.unread_count,
+          ).toBe(0);
+          expect(markerReads()).toBe(healthyReads);
+          expect(
+            f.owner.session.unread.snapshot({
+              kind: "channel",
+              channelId: f.privateDm,
+            }).manual,
+          ).toBe("local-only");
+        }
+      } finally {
+        await f.close();
+      }
+    },
+  );
 
   it("recovers local-only Inbox after a connection gap without remote read markers", async () => {
     const f = await inboxSetup();
@@ -3676,33 +3728,43 @@ describe("delegated Inbox reads", () => {
     }
   });
 
-  it("withholds observed notifications when read sync fails during the final Bestie check", async () => {
-    const f = await inboxSetup(true, undefined, { decode: async () => [] });
-    const gate = runnerGate<string | null>();
-    const started = runnerGate();
-    try {
-      await f.readInbox();
-      f.account.mockResolvedValueOnce(bot).mockImplementationOnce(() => {
-        started.resolve();
-        return gate.promise;
-      });
-      const pending = f.readInbox();
-      const rejected = expect(pending).rejects.toThrow(/Inbox.*retry/i);
-      await started.promise;
-      f.query.mockImplementation(async (filters) => {
-        if (filters[0]?.kinds?.includes(30078))
-          throw new Error("Read-marker enumeration failed");
-        return f.healthyQuery(filters);
-      });
-      await f.owner.session.unread.retrySync();
-      expect(f.owner.session.unread.sync().status).toBe("error");
-      gate.resolve(bot);
-      await rejected;
-    } finally {
-      gate.resolve(bot);
-      await f.close();
-    }
-  });
+  it.each(["unchanged", "local unread"])(
+    "withholds observed notifications when read sync fails with %s during the final Bestie check",
+    async (intent) => {
+      const f = await inboxSetup(true, undefined, { decode: async () => [] });
+      const gate = runnerGate<string | null>();
+      const started = runnerGate();
+      try {
+        await f.readInbox();
+        f.account.mockResolvedValueOnce(bot).mockImplementationOnce(() => {
+          started.resolve();
+          return gate.promise;
+        });
+        const pending = f.readInbox();
+        const rejected = expect(pending).rejects.toThrow(/Inbox.*retry/i);
+        await started.promise;
+        f.query.mockImplementation(async (filters) => {
+          if (filters[0]?.kinds?.includes(30078))
+            throw new Error("Read-marker enumeration failed");
+          return f.healthyQuery(filters);
+        });
+        await f.owner.session.unread.retrySync();
+        expect(f.owner.session.unread.sync().status).toBe("error");
+        if (intent === "local unread") {
+          await f.owner.session.unread.markUnreadLocal({
+            kind: "channel",
+            channelId: f.privateDm,
+          });
+          expect(f.owner.session.unread.sync().status).toBe("local");
+        }
+        gate.resolve(bot);
+        await rejected;
+      } finally {
+        gate.resolve(bot);
+        await f.close();
+      }
+    },
+  );
 
   it.each(["unread", "overlays"])(
     "rejects a failed %s read instead of stale content, then retries",
