@@ -13,6 +13,7 @@ import { AgentsContext } from "./react";
 import type { Agents } from "./service";
 import { ActivityTranscript } from "./ActivityTranscript";
 import type { TranscriptTurn } from "./activity-transcript";
+import { activityTranscript } from "./activity-transcript";
 import { withSessionPrompts } from "./session-prompts";
 import { codexTurns } from "../../bundled/codex/transcript";
 import { restoreRecordedTools } from "../../bundled/codex/recorded-tools";
@@ -23,6 +24,45 @@ import {
 import { formatTime } from "../../shared/datetime";
 
 afterEach(cleanup);
+
+it.each([
+  ["completed", "Completed"],
+  ["failed", "Failed"],
+  ["terminated", "Failed"],
+  ["cancelled", "Stopped"],
+  ["future-outcome", "Status unknown"],
+])("shows the remote turn outcome %s in the Activity tab", (outcome, label) => {
+  const at = new Date("2026-11-04T12:00:00Z");
+  const transcript = activityTranscript(
+    [
+      {
+        id: "remote",
+        agent: "a".repeat(64),
+        receivedAt: at.getTime(),
+        plaintext: JSON.stringify({
+          kind: "turn_completed",
+          turnId: "task",
+          timestamp: at.toISOString(),
+          payload: { outcome },
+        }),
+      },
+    ],
+    { agent: "a".repeat(64) },
+  );
+  render(
+    <ActivityTranscript
+      transcript={transcript}
+      agentName="Remote helper"
+      state={() => "ended"}
+    />,
+  );
+  expect(screen.getByText(label, { exact: true })).toBeVisible();
+  if (label === "Failed")
+    expect(screen.getByText(label).closest("header")).toHaveAttribute(
+      "data-status",
+      "failed",
+    );
+});
 
 it.each([
   ["failed", "Failed"],

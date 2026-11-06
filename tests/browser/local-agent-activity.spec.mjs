@@ -97,7 +97,10 @@ test("local agent receipt, work and failure agree across sidebar, thread and exa
     (id) => window.localAgentFixture.finish(id, false),
     second.id,
   );
-  await expect(waiting).toContainText("1 failed");
+  await expect(
+    secondRow.getByText("Couldn’t finish", { exact: true }),
+  ).toBeVisible();
+  await expect(waiting).toHaveText("Details");
   await expect(waiting).toHaveAccessibleName(
     /Local tester, Fixture provider unavailable/,
   );
@@ -160,7 +163,9 @@ test("local agent receipt, work and failure agree across sidebar, thread and exa
     (id) => window.localAgentFixture.finish(id, false),
     second.id,
   );
-  await expect(waiting).toContainText("1 failed");
+  await expect(
+    secondRow.getByText("Couldn’t finish", { exact: true }),
+  ).toBeVisible();
   // Dismiss hides only this device's view of the error; focus stays in the row.
   await waiting.focus();
   await page.keyboard.press("Enter");
@@ -796,6 +801,18 @@ test("the published-activity tab shows turns its agent published", async ({
       await expect
         .poll(async () => (await toolSummary.boundingBox())?.height ?? Infinity)
         .toBeLessThan(300);
+      // The host inset, hero, and footer must agree after the dock narrows it.
+      await expect
+        .poll(() =>
+          toolSummary.evaluate((summary) => {
+            let host = summary.parentElement;
+            while (host && getComputedStyle(host).overflowY !== "auto")
+              host = host.parentElement;
+            if (!host) throw new Error("Missing activity scrollport");
+            return host.scrollWidth - host.clientWidth;
+          }),
+        )
+        .toBe(0);
     }
   }
   await page.evaluate(() => {

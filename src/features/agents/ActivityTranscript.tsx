@@ -277,18 +277,32 @@ function Turn({
     openConversation && channelId && threadRootId !== undefined
       ? () => openConversation(channelId, threadRootId ?? undefined)
       : undefined;
-  const status = turn.error
-    ? "Failed"
-    : state === "working"
-      ? "Working"
-      : turn.endedAt
-        ? "Completed"
-        : "Status unknown";
-  const StatusIcon = turn.error
-    ? XCircleIcon
-    : turn.endedAt
-      ? CheckCircleIcon
-      : QuestionIcon;
+  const status =
+    turn.error || turn.outcome === "error"
+      ? "Failed"
+      : turn.outcome === "stopped"
+        ? "Stopped"
+        : turn.outcome === "unknown"
+          ? "Status unknown"
+          : turn.outcome === "ended"
+            ? "Completed"
+            : state === "working"
+              ? "Working"
+              : turn.endedAt
+                ? "Completed"
+                : "Status unknown";
+  const tone =
+    status === "Failed"
+      ? "failed"
+      : status === "Completed"
+        ? "completed"
+        : "unknown";
+  const StatusIcon =
+    tone === "failed"
+      ? XCircleIcon
+      : tone === "completed"
+        ? CheckCircleIcon
+        : QuestionIcon;
   return (
     <article
       className={styles.turn}
@@ -299,9 +313,7 @@ function Turn({
       {state !== "working" && (
         <header
           className={`text-body ${styles.statusRow} ${styles.row}`}
-          data-status={
-            turn.error ? "failed" : turn.endedAt ? "completed" : "unknown"
-          }
+          data-status={tone}
         >
           <StatusIcon size={16} aria-hidden="true" />
           <span>{status}</span>

@@ -138,6 +138,33 @@ function fakeActivity(overrides: Partial<Snapshot> = {}) {
   return { activity, update };
 }
 
+it.each([
+  ["ended", "Completed"],
+  ["error", "Failed"],
+  ["stopped", "Stopped"],
+] as const)(
+  "shows readback outcome %s without inventing a terminal frame",
+  (outcome, label) => {
+    const { activity } = fakeActivity({
+      records: [record("t1", "Partial response")],
+      turns: [
+        {
+          agent: pubkey,
+          turnId: "t1",
+          channelId: "alpha",
+          timestamp: Date.now(),
+          state: "ended",
+          outcome,
+        },
+      ],
+    });
+    render(<ActivityPanel agent={agent} activity={activity} />);
+    expect(screen.getByText(label, { exact: true })).toBeVisible();
+    expect(
+      screen.getByText("Partial response", { selector: "summary span" }),
+    ).toBeVisible();
+  },
+);
 it("shows this agent's published turns, leaving the feed's lease to the plugin", async () => {
   const { activity } = fakeActivity({
     records: [
@@ -171,6 +198,7 @@ it("shows this agent's published turns, leaving the feed's lease to the plugin",
   ).toBeInTheDocument();
   expect(screen.queryByText("Someone else's work")).not.toBeInTheDocument();
   expect(screen.getByText("Working")).toBeInTheDocument();
+  expect(screen.queryByText(/Remote workspace/)).not.toBeInTheDocument();
   expect(activity.activate).not.toHaveBeenCalled();
 });
 
