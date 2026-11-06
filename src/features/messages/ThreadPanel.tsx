@@ -1450,6 +1450,13 @@ function ThreadMessages({
     : undefined;
   function renderReplies(parent: string | undefined, depth = 0): ReactNode {
     const chronologicalSiblings = tree.children.get(parent) ?? [];
+    // Outcome captions stay within one displayed level, so a collapsed branch
+    // cannot hide the reply that owns a request's outcome.
+    const requestRows = new Map(
+      chronologicalSiblings.map((row) => [row.id, row]),
+    );
+    if (parent === undefined && snapshot.root)
+      requestRows.set(snapshot.root.id, snapshot.root);
     const presentation = activityPresentation(
       chronologicalSiblings,
       activitySnapshot,
@@ -1501,17 +1508,18 @@ function ThreadMessages({
         : undefined;
       const renderMessage = (row: ChannelMessage, inside = false) => {
         const recordedActivity = presentation.byRow.get(row.id);
+        const requestId = presentation.replyRequests.get(row.id);
         return (
           <MessageRow
             representedAgents={stableActivity.agents(
               row.id,
               presentation.representedAgents.get(row.id),
             )}
-            stoppedRequest={
-              rootId && rootReplies.replyRequests.get(row.id) === rootId
-                ? snapshot.root
-                : undefined
-            }
+            repliedAgents={stableActivity.agents(
+              `replied:${row.id}`,
+              presentation.repliedAgents.get(row.id),
+            )}
+            stoppedRequest={requestId ? requestRows.get(requestId) : undefined}
             recordedActivity={stableActivity.activity(
               row.id,
               recordedActivity,
@@ -1571,11 +1579,14 @@ function ThreadMessages({
           className={styles.replyItem}
           data-layout={continuation ? "continuation" : "thread"}
         >
-          {!parent && row.replyParentId && row.replyParentId !== rootId && (
-            <p className={styles.threadNote}>
-              Earlier reply unavailable in loaded history.
-            </p>
-          )}
+          {!parent &&
+            row.replyParentId &&
+            row.replyParentId !== rootId &&
+            !requestRows.has(row.replyParentId) && (
+              <p className={styles.threadNote}>
+                Earlier reply unavailable in loaded history.
+              </p>
+            )}
 
           {group && (
             <>

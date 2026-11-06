@@ -31,7 +31,7 @@ import {
   useChannelTabState,
 } from "./useChannelTabState";
 import { ChannelMembersDialog } from "./ChannelMembersDialog";
-import { ChannelMemberAvatars } from "./ChannelMemberAvatars";
+import { ChannelHeaderIdentity, memberAccess } from "./ChannelHeaderIdentity";
 import {
   soloDraft,
   soloDraftTarget,
@@ -41,6 +41,7 @@ import type { ChannelLifecycleAction } from "../../features/relay/channel-lifecy
 import type { CommunityMembership } from "../moderation/membership";
 import { SoloHeading, SoloToolbar, useSoloMoveRecovery } from "./SoloHeading";
 import { NewMessage } from "../../features/direct-messages/NewMessage";
+import { ForwardMessageProvider } from "../../features/messages/ForwardMessage";
 import { Panel } from "../../shared/design-system/ui/Panel";
 import { Button } from "../../shared/design-system/ui/Button";
 import { IconButton } from "../../shared/design-system/ui/IconButton";
@@ -227,7 +228,7 @@ export function ChannelsPage({
               </div>
               <h1>Your channels, one conversation.</h1>
               <p>
-                Use the community picker in the header to choose or add a
+                Use the community picker in the top bar to choose or add a
                 community. Your profile and settings work without a community.
               </p>
             </div>
@@ -802,6 +803,27 @@ function ChannelWorkspace({
       },
     });
   };
+  const handleCommand = (command: string, signal: AbortSignal) => {
+    if (command.toLowerCase() !== "/leave" || !current || solo) return false;
+    return (async () => {
+      const permissions = await queries.channelLifecycle.load(
+        current.id,
+        signal,
+      );
+      signal.throwIfAborted();
+      if (!permissions.canLeave)
+        throw new Error(
+          permissions.leaveReason ??
+            "You can’t leave this channel with your current permissions.",
+        );
+      const trigger =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : undefined;
+      chooseLifecycle(current, "leave", trigger);
+      return true;
+    })();
+  };
   // A Solo start that fails leaves its chat for New chat only while this
   // workspace still shows that chat.
   const showing = useRef(requestedChannel);
@@ -837,7 +859,7 @@ function ChannelWorkspace({
     const signal = navigation?.signal;
     const shortcut = {
       available: () => !signal?.aborted,
-      // The menu's fresh permission read: no Archive where the menu has none.
+      // A fresh permission read: no Archive where current relay state has none.
       run: async () => {
         const trigger =
           document.activeElement instanceof HTMLElement
@@ -987,10 +1009,23 @@ function ChannelWorkspace({
   const returnFocus = useRef<
     { trigger: HTMLElement; channelId: string | undefined } | undefined
   >(undefined);
+  // A close's native return lands a task or more after its dismissal. Until
+  // then the navigator still shows the retiring visit.
+  const pendingReturn = useRef<{
+    from: string;
+    target: string;
+    reopen?: PanelOpening;
+  }>(undefined);
   const visitPanel = useCallback(
     (entry: PanelOpening) => {
-      const target = navigator?.snapshot().entry.target;
+      const { id, target } = navigator?.snapshot().entry ?? {};
       if (!navigator || target?.kind !== "conversation") return;
+      // Opening now would revisit or stack on the retiring visit. The panel
+      // takes its own visit once the return lands.
+      if (pendingReturn.current?.from === id) {
+        pendingReturn.current.reopen = entry;
+        return;
+      }
       if (
         target.channelId === entry.channelId &&
         target.detail?.target === entry.target &&
@@ -1092,6 +1127,21 @@ function ChannelWorkspace({
       };
     }
     navigator.dismiss(visits, fallback);
+    // A later close can retire more visits before the return lands, moving
+    // where it lands.
+    const pending =
+      pendingReturn.current?.from === current.id
+        ? pendingReturn.current
+        : undefined;
+    if (
+      (pending || visits.includes(current.id)) &&
+      navigator.snapshot().entry.id === current.id
+    )
+      pendingReturn.current = {
+        ...pending,
+        from: current.id,
+        target: targetKey(fallback),
+      };
   };
   const secondary = useConversationTabs({
     state: tabState,
@@ -1276,7 +1326,7 @@ function ChannelWorkspace({
           channelConversation.current
             ?.closest("[data-main-workspace]")
             ?.querySelector<HTMLElement>(
-              '[role="tab"][data-tab-value="conversation"]',
+              '[role="tab"][data-tab-value="conversation"], [data-workspace-identity] button',
             ) ?? (solo ? historyContainer.current : settingsTrigger.current);
         target?.focus({ preventScroll: true });
       }
@@ -1336,6 +1386,20 @@ function ChannelWorkspace({
         (kept.pane === "main"
           ? tabState.getMainSelected()
           : tabState.getSelected()) === kept.id;
+      // A panel opened before the close's return landed supersedes that
+      // close, unless it has since closed or the return went elsewhere.
+      const returned = pendingReturn.current;
+      const reopen =
+        returned?.reopen &&
+        navigation.entryId !== returned.from &&
+        targetKey(navigation.target) === returned.target &&
+        [tabState.getSelected(), tabState.getMainSelected()].includes(
+          panelTabId(returned.reopen),
+        )
+          ? returned.reopen
+          : undefined;
+      if (returned && navigation.entryId !== returned.from)
+        pendingReturn.current = undefined;
       tabState.enterVisit(
         `${navigation.entryId}:${detail ? "detail" : routedThread ? "thread" : "channel"}`,
         detail ? undefined : routedThread,
@@ -1344,7 +1408,9 @@ function ChannelWorkspace({
           ? { channelId: currentId, target: detail.target }
           : undefined,
       );
-      if (detail && currentId) {
+      // A re-render while the return is pending must not reapply the detail
+      // that was just closed.
+      if (detail && currentId && navigation.entryId !== returned?.from) {
         const entry = panelOpening(
           panels,
           currentId,
@@ -1354,6 +1420,8 @@ function ChannelWorkspace({
         if (entry && historyPanel(entry)) open(entry);
         else navigation.complete({ status: "failed", reason: "unavailable" });
       }
+      // Reselect it over the restored selection and give it its own visit.
+      if (reopen) open(reopen);
       if (kept && navigation.entryId !== kept.from) {
         keptTabReturn.current = undefined;
         if (retained && targetKey(navigation.target) === kept.target) {
@@ -1790,8 +1858,8 @@ function ChannelWorkspace({
         current.channelType !== "dm" && (
           <ChannelLifecycleActions
             key={`${current.id}:${!!current.archived}`}
-            channelId={current.id}
-            lifecycle={queries.channelLifecycle}
+            channel={current}
+            session={queries}
             noun={lifecycleNoun(current)}
             choose={(action, trigger) =>
               handoff.openLifecycle(current, action, trigger)
@@ -1880,7 +1948,7 @@ function ChannelWorkspace({
   );
   // The conversation: full width for Solo, or the first main-pane tab.
   const body = (
-    <>
+    <div className={styles.conversationBody}>
       <MessageManagementStatus />
       <section
         data-channel-history
@@ -1997,10 +2065,11 @@ function ChannelWorkspace({
               ) : undefined
             }
             onSend={onComposerSend}
+            onCommand={handleCommand}
             focusRequest={composerFocus}
           />
         )}
-    </>
+    </div>
   );
   const workspace = (
     <div
@@ -2057,6 +2126,7 @@ function ChannelWorkspace({
               host={{ relay, panels, navigation: navigator }}
               session={queries}
               scope={scope}
+              visit={navigation}
               extensions={extensions}
               onPreparing={(pubkeys) => handoff?.prepareDm(pubkeys)}
               onOpenThread={openChannelThread}
@@ -2083,6 +2153,7 @@ function ChannelWorkspace({
               ])}
               linkedId={draft.linked}
               source={linkedSource}
+              visit={navigation}
               focusRequest={
                 navigation?.focus === "preserve" ||
                 (retiredSoloDraft.generation > 0 &&
@@ -2121,7 +2192,10 @@ function ChannelWorkspace({
                   navigator &&
                   !behindSettings()
                 )
-                  void navigator.open(soloDraftTarget(scope, draft));
+                  // The chat was never made: its draft takes its place.
+                  void navigator.open(soloDraftTarget(scope, draft), {
+                    replace: true,
+                  });
               }}
             />
           ) : (
@@ -2177,6 +2251,19 @@ function ChannelWorkspace({
                     tabMenu={tabMenu}
                     drag={secondary.drag.main}
                     label="Channel tabs"
+                    identity={
+                      current && (
+                        <ChannelHeaderIdentity
+                          session={queries}
+                          channelId={current.id}
+                          name={current.name}
+                          access={memberAccess(current)}
+                          ref={membersHeaderTrigger}
+                          aria-expanded={membersOpen}
+                          onClick={(event) => openMembers(event.currentTarget)}
+                        />
+                      )
+                    }
                     focusOnMount={false}
                     adoptSelection={preservedVisit}
                     value={secondary.selectedMain}
@@ -2187,31 +2274,6 @@ function ChannelWorkspace({
                     }
                     actions={
                       <>
-                        {current && (
-                          <IconButton
-                            size="sm"
-                            variant="avatar"
-                            style={{
-                              width: "auto",
-                              minWidth: "var(--size-control-sm)",
-                              paddingInline: "var(--space-1)",
-                            }}
-                            aria-label="Manage members"
-                            title="Manage members"
-                            aria-haspopup="dialog"
-                            ref={membersHeaderTrigger}
-                            aria-expanded={membersOpen}
-                            onClick={(event) =>
-                              openMembers(event.currentTarget)
-                            }
-                            icon={
-                              <ChannelMemberAvatars
-                                session={queries}
-                                channelId={current.id}
-                              />
-                            }
-                          />
-                        )}
                         {drawer.launchers}
                         <ChannelHeaderMenu
                           startChat={
@@ -2460,7 +2522,14 @@ function ChannelWorkspace({
           }
         }
       >
-        {workspace}
+        <ForwardMessageProvider
+          session={queries}
+          scope={scope}
+          navigation={navigator}
+          renderDialog
+        >
+          {workspace}
+        </ForwardMessageProvider>
       </ConversationChannel>
       {soloMoveNotices}
     </LinkThreadTabContext>

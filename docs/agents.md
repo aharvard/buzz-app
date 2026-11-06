@@ -68,15 +68,16 @@ origins. It defaults to no access. Desktop preview releases enable bb-block only
 Consent and Settings use this list. The Agents service also checks it before
 opening a connection and on each tool call. See [configuration](configuration.md#external-mcp-community-flag).
 
-Buzz desktop accepts `buzz://mcp-authorize` requests from local apps. Opening a
-link only shows consent. The owner selects a community and an app-held,
+Buzz desktop accepts `buzz://mcp-authorize` requests from local apps. A new request shows consent. A valid saved approval can restore a connection
+without new consent. The owner selects a community and an app-held,
 unprotected agent, then selects **Authorize** or **Deny**. No plugin specific
 to the external app is required. The bundled Agents plugin owns the native MCP
 permission. **Settings > External apps** shows the connection and **Revoke access**.
 Keys stay in Buzz. Closing Settings keeps access active.
 
 Version 1 links contain `version=1`, the requesting `client` display name,
-`callback`, random `state`, `scope` (`read`, `post`, or both), `code_challenge`,
+`callback`, random `state`, `scope` (a space-separated selection of `read`, `post`,
+and `create`), `code_challenge`,
 and `code_challenge_method=S256`. The callback must be exactly
 `http://127.0.0.1:<port>/buzz/authorize`, with a port from 1024 through 65535.
 State and challenge each encode 32 bytes as unpadded base64url. The client name
@@ -99,17 +100,31 @@ Bearer <token>`. Notifications return 202. There is no SSE or DELETE endpoint.
 Each grant admits one upstream session; the external app shares it among its
 agents. A second initialization stops the grant. Revocation, a community or
 identity change, or the end of the owning agent runtime, plugin, or app also
-stops it. Start setup again in the external app after a connection ends.
+stops it. A version 1 client needs new setup after its session ends. Version 2
+can use saved approval to create another session.
 
 The read scope allows `channel_list`, `channel_get`, and `read`. The post scope
-allows `send` and `reply_in_subthread`. Buzz classifies each built-in tool through
+allows `send` and `reply_in_subthread`. The create scope allows only
+`channel_create({name})`: a private Solo with the authenticated owner, connected
+agent and the owner's account-saved Bestie. Buzz derives these identities and
+deduplicates them; the creating agent is an implicit member. A missing, invalid,
+unreadable or unavailable saved Bestie fails before creation with a corrective
+message. It never substitutes an automatic device fallback. The exact saved key
+must be selectable through the session's shared agent choices in this community;
+it need not run on this device. Caller-supplied members, identities, visibility,
+templates and lifecycle operations are not allowed. Publication and confirmation
+use the existing native Solo-create handler and its unconfirmed-result messages.
+Buzz classifies each built-in tool through
 its trusted external-access policy. Unclassified tools cannot run. Runtime plugin
 tools cannot enroll in this policy.
 
 `tools/list` returns all classified tools in one page. It rejects a supplied
 `cursor`. Each tool has `_meta["buzz/requiredScopes"]`. The list result has
 `_meta["buzz/grantedScopes"]` and `_meta["buzz/supportedScopes"]`; the supported
-set is `read` and `post`. Tool discovery does not grant access. Each call checks
+set is `read`, `post`, and `create`. One authorization can request all three.
+Buzz never widens an existing grant: a read/post grant permits creation only after
+the owner approves a request that includes `create`. Tool discovery does not grant
+access. Each call checks
 the grant against the trusted policy. A missing scope returns `isError: true`
 and `_meta["buzz/error"]: {code: "authorization_required", required_scopes: [...]}`.
 `required_scopes` lists the missing scopes. Each approval replaces the previous
@@ -119,15 +134,76 @@ it already has. For example, an app with `read` that needs `post` requests
 The app must not retry the call automatically after approval. New classified tools
 use this same contract.
 
+External clients must accept `create` in `buzz/grantedScopes`,
+`buzz/supportedScopes` and per-tool `buzz/requiredScopes` before this catalog is
+advertised. Older Nexus clients that accept only read/post reject an unknown
+supported scope even when their grant still contains only read/post.
+
 The shared schemas apply with explicit
 targets: `read` needs `channel`, `thread`, or `message_url`. A `message_url` uses
 the linked message's channel and thread; it cannot combine with `channel` or
 `thread`. Searches with `q` need `channel` or `message_url`;
-`channel_get` needs `channel`; `send` needs `channel`, `text`, and `audience`;
+`channel_get` needs `channel`; `channel_create` accepts only `name`;
+`send` needs `channel`, `text`, and `audience`;
 `reply_in_subthread` needs `parent`, `text`, and `audience`. Posts accept
 `mentions`, and `send` accepts `reply`. Posts reject `path`, `files`, and `final`.
 Unknown fields are rejected. File access, commands, Git credentials, and plugin
 tools are unavailable. Connection credentials must stay out of logs and messages.
+
+### Durable external approval
+
+Version 2 uses the same request fields and callback as version 1. Initial consent
+saves approval for 30 days. An authenticated reconnect renews valid approval
+for another 30 days after the current connection checks pass. Approval expires
+after 30 days without renewal. Expired or revoked approval requires new owner
+consent. The native credential store holds its random ID and
+256-bit reconnect secret. Approval binds the client display name, signed-in
+owner, agent membership, canonical community origin, and exact scopes. The
+webview receives only the public approval. Agent signing keys stay in Buzz.
+Version 1 remains limited to its current session.
+
+The one-use S256 exchange returns the normal MCP descriptor plus `pairing`:
+`{id,secret,approval:{client,viewer,agent,community,scopes},expires_at,counter}`.
+`expires_at` is a Unix time in seconds. `counter` starts at zero. The external
+client keeps this record in its native credential store. It never puts the
+secret in a link, workspace, log, or agent tool result.
+
+A reconnect link uses version 2 and adds `pairing_id`, `counter`, and `proof`.
+The client saves an increased counter before opening the link. Buzz accepts
+only a greater counter and saves it before it starts a fresh session. A lost
+handshake can skip a counter. A counter is a positive integer of at most
+999999999999999. The proof is unpadded base64url HMAC-SHA256 with the decoded
+reconnect secret as its key. Its input is the UTF-8 JSON array, with no spaces:
+
+```text
+["buzz-resume-request-v1",id,counter,callback,state,code_challenge]
+```
+
+Buzz checks the proof in native code. It checks the current owner, community,
+agent availability, and saved scopes through the Agents service. The callback
+carries a fresh one-use code and exchange endpoint. It also carries `proof`,
+with this HMAC input:
+
+```text
+["buzz-resume-response-v1",id,counter,state,code,exchange_url]
+```
+
+The client checks this proof before exchange. The endpoint can change after a
+restart. The exchange returns the same approval and secret, the accepted
+counter, a renewed `expires_at`, and a fresh bearer. Reservation of a counter
+does not renew approval. The client accepts only an unchanged ID, secret,
+approval, and accepted counter. The returned expiry must not decrease or exceed
+30 days from the current time. The client saves the renewed record before it
+initializes that one-session bearer.
+Neither side resumes or repeats a tool request.
+
+External apps restores the saved approval in Settings. **Revoke access** first
+erases the saved approval, then closes the live session. Revoke also cancels
+an in-flight initial approval. Page unload and connection loss close sessions
+without erasing approval. Every authenticated native request checks approval
+and expiry. The Agents service also checks current identity and community
+before tool dispatch. A changed identity, unavailable agent, changed community,
+revocation, or expiry cannot grant access. Added scopes require new owner consent.
 
 ## Managing plugins from a conversation
 
@@ -217,6 +293,17 @@ session keeps its key and workspace across later turns and app restarts. **Start
 a new session** requests another allocation. **Interrupt** stops pending setup
 and keeps the key for retry. Activity reads the saved session inventory. Remote
 usage is unavailable. Settings and model discovery do not create targets.
+
+Claude uses the same contract with its stream-json process. Its tools and hooks
+use that process connection. Files come from the target. Each conversation
+keeps its execution key, workspace, and Claude session across app restarts.
+**Start a new session** selects a new execution key. An established session
+requires this reset when Claude cannot restore it. A session with no recorded
+submission can retry on the same target. The target must supply Claude
+Code 2.1.169 or later and its own authentication. No local credentials go to the
+target. Local Claude retains its device defaults. Remote Claude uses explicit
+agent settings or the target defaults. Model discovery does not allocate a
+target. Remote usage totals and transcript views are unavailable.
 
 Harness plugins register agent types with the Agents service. An agent type owns
 the defaults, migration policy, per-agent settings tabs, model discovery and run
@@ -309,7 +396,7 @@ and the owner's other comments wake the agent. A watch is saved in Attention on 
 pull request merges or closes, after 20 wakes, after 30 minutes without a
 successful read, or when the agent calls it with `stop: true`.
 
-Settings → Plugins → GitHub comment authors decides whose feedback wakes agents,
+Settings → Plugins → GitHub decides whose feedback wakes agents,
 since anyone can comment on a public pull request. It holds rules, one per
 line, saved on the device. Each starts with `allow` or `deny`, followed by any
 of these conditions, all of which must hold:
@@ -405,7 +492,8 @@ thread-scoped sessions take only notes addressed to their root. Notes are
 consumed once when the harness is ready to deliver the turn, and restored to
 the same conversation ahead of newer notes if delivery definitely never began.
 They remain in memory only, and the call returns false unless this copy runs
-the agent.
+the agent. Pi agents don't take notes yet: the call still returns true for one,
+but its turns never include the note.
 
 A type marks its primary configuration tab with `role: "settings"`. In the
 Agents build view and profile panel, the host keeps that tab at a stable
@@ -455,6 +543,15 @@ Buzz keeps no separate Goose defaults store. Readiness requires a working
 `goose-acp` and a configured default provider. The per-agent provider/model
 fields remain overrides. Types without a provider contribution have no Harness
 defaults row; a failed contribution retains the unavailable fallback.
+
+For creation-specific access, `CreateAction` presents a compact action beside
+Harness and receives the host's `disabled` state. `CreateConfiguration` reports
+readiness through `onReadyChange`; that gate also applies in the remote introduction.
+Builderlab uses it for Sign in with a pending loading spinner, while its creation
+fields keep Model and Thinking visible but disabled when signed out. After three
+seconds, browser sign-in shows guidance and Cancel sign-in, matching the agent
+pane. Account verification remains non-cancellable. Sign-in errors remain
+with the fields and drafts survive cancellation.
 
 Workspace, instructions and session scope are always per-agent. Claude and Codex
 model/thinking choices may instead be blank, which means inherited rather than
@@ -1121,8 +1218,10 @@ not joined here; the transcript shows the agent's ACP output.
 
 The shared Claude, Goose, and Pi turn formatter sends conversation history and
 the triggering event as exact JSON records with escaped markup delimiters, the
-same records Codex sends. Message text and tags therefore cannot create extra
-request sections. The transcript reads those records directly and retains
+same records Codex sends. Beside the author's `pubkey`, each record carries
+their verified `username` when the community verified one, which the agent
+writes after `@` to tag them, and their `display_name`. Message text, names
+and tags therefore cannot create extra request sections. The transcript reads those records directly and retains
 support for the earlier single-object JSON event and older line-based
 `buzz-event` and `buzz-events` records; it never parses decoded message content
 as another prompt.
@@ -1158,6 +1257,26 @@ beyond 30 seconds or disconnect makes work unknown, not stopped. Terminal state
 retains a monotonic evidence timestamp through clock rollback and bounded eviction.
 There is no agent-global sequence gate: producer sequences reset, skip and interleave.
 
+Remote terminal outcomes map `completed` to success, `failed`/`terminated` to
+failure, and `cancelled` to stopped without identifying who cancelled. Exact
+trigger IDs and outcomes survive raw-record trimming. Losing a lifecycle turn
+makes aggregate request completion uncertain.
+
+With Builderlab sign-in, stale activity or reconnect triggers an owner-only
+`/v3/beekeeper/get-agent-turn-status` read for retained exact tasks. Reads batch
+up to 64 tasks per agent/session/channel using existing bounded retries. Missing
+or nonterminal tasks stay unknown and are checked again with jittered backoff:
+the first delay is 15–30 seconds, doubling to a five-minute ceiling. One timeout
+serves retained unknown tasks; completed tasks do not keep polling. A missing
+session or an agent outside the owner's inventory is skipped until reconnect.
+An exhausted transient read failure uses the same delayed retry for its batch;
+other sessions can continue recovering. Permanent read failures skip that batch
+until reconnect rather than stopping all recovery.
+Account/community changes, disable/reset and disposal cancel recovery; readback
+cannot replace a received terminal result. Recovery neither archives raw activity
+nor restores history after reload. Older servers without the endpoint leave
+tasks unknown.
+
 ### Activity updates in the conversation
 
 The live conversation indicator remains visible while agents work, even when
@@ -1179,6 +1298,22 @@ thread root is not proof of a turn. Finishing a request retires its live treatme
 not its messages. When lifecycle evidence is missing, a related public reply can
 retire the old live treatment without claiming that execution completed. Current
 work continues to appear in the conversation indicator.
+
+A public reply alone does not replace the request's live indicator. Mounted
+update history can own the current step and request controls while the live
+conversation indicator remains available. When public replies
+split one request's updates into several runs, only the latest run for each agent
+owns its live shimmer and Stop control; earlier runs remain readable history.
+Other agents and requests retain their own live presentation.
+Codex transfers live activity to an accepted follow-up in the same conversation.
+Top-level DM messages share that presentation scope; actual DM threads remain
+independent, even when they share a harness session.
+
+The historical-reply fallback requires the reply author to have participated in
+the exchange or received the helper’s last update. It never overrides available
+pending, failed, or uncertain lifecycle evidence. Durable cross-host completion
+would require retained request/turn relationships and terminal events; the
+current live-only feed does not provide that guarantee.
 
 ### Try with an existing owner account
 
@@ -1325,10 +1460,13 @@ continues to use a searchable Combobox.
 
 Builderlab Identity and creation reuse the shared family → model menu, with a
 separate compact Thinking selector. Builderlab requires an explicit supported
-model/thinking pair rather than an inherited default. Its plugin owns catalog
-family aliases; changing the model clears the thinking choice. Creation places
-these controls beside the host-owned Harness row in one SettingsGroup, while
-keeping sign-in/recovery and Instructions outside the group.
+model/thinking pair rather than an inherited default. When the catalog's
+optional `recommended_selection` names an offered pair, creation fills it into
+untouched choices as a suggested change, which does not start the draft; a
+person's choice is never replaced. Its plugin owns catalog family aliases;
+changing the model clears the thinking choice. Creation places these controls
+beside the host-owned Harness row in one SettingsGroup, while keeping
+sign-in/recovery and Instructions outside the group.
 
 Provider dropdowns are intentionally text-only. The model control shows the
 selected model family icon, not the Goose runtime or Databricks/provider mark,
@@ -1473,5 +1611,9 @@ Source return or failure, cancellation, Attention off, agent stop, plugin unload
 A plugin can offer MCP tools to agents Buzz did not start, such as Claude Code, Codex, Pi or Nexus sessions. It serves a dedicated `host.serveMcp` server and declares the bundled helper as a process, for example `{ "id": "agent-access", "program": "buzz-agent-command", "bundled": true, "args": ["--advertise"] }`. `spawn("agent-access", { mcp: server })` lets the helper claim that server's one session and save it to `~/.buzz-foundation/agent-connections`, then exit. The plugin keeps the server open after the helper exits and spawns it once per server: a second spawn on the same server stops it. Every local agent of this user can then call that server's tools. On macOS and Linux the directory and files are private to the user and the helper ignores files others could have written; on Windows they rely on the profile's inherited permissions. The plugin handler must not assume a particular caller, and protected workers that must not reach these tools need that directory in `hiddenPaths`.
 
 An agent runs the installed helper by absolute path, with no inherited connection, configuration or token: `/Applications/Buzz.app/Contents/Resources/bin/buzz-agent-command tools` on macOS (inside the app's installed name, such as `Buzz Foundation.app`), `…\bin\buzz-agent-command.exe` on Windows and `/usr/lib/Buzz Foundation/bin/buzz-agent-command` on Linux. `tools`, `<tool> --field value` and `call <tool> '<JSON object>'` behave as `buzz` does inside an agent command, and `--help` prints that usage with the path it was run as. The agent's own sandbox must allow loopback connections: Codex's read-only and workspace-write modes, for example, block them unless network access is enabled, and the helper then reports `Could not reach Buzz` and leaves the advertisement in place. The helper uses the newest advertised session that still answers and offers the tool, so a second Buzz window's tools are still reached; when two plugins offer the same tool name, the newer advertisement wins. A tool call stops asking older advertisements once it finds that session, so a stalled older server does not delay it; `tools` asks every advertisement. Before sending a saved session, the helper connects and confirms, by numeric user ID, that a process of this user has accepted that same connection (`lsof` on macOS, `/proc/net/tcp` on Linux), then sends the request on it. If that is not confirmed within about a second, as when another user's process holds a closed server's port, the server receives nothing and the advertisement stays. Windows does not support advertised sessions; the helper reports that instead. An advertisement lasts as long as its server. Closing the server, reloading the page, unloading the plugin or quitting Buzz ends it, and the next caller that asks it removes the file once its server refuses the connection or the session. An inherited `BUZZ_AGENT_CONNECTION` always takes precedence.
+
+## The `buzz` CLI inside a harness
+
+ACP harnesses never receive a Buzz key: `PROTECTED_ENV` strips `BUZZ_PRIVATE_KEY`, `BUZZ_AUTH_TAG` and `BUZZ_RELAY_URL` whatever their hooks or launch say, because a key in a harness's environment reaches every command and subprocess it runs. Instead, a Claude Code or goose process carries `BUZZ_CREDENTIAL_PROVIDER`, a token for the app's [local credential service](identity.md#local-credential-service) that acts only as the agent that process serves, so `buzz` run there signs and reaches its community as that agent. Native code sets it, and the app drops any value it was itself launched with at startup, so no other process it spawns inherits one. The token is bound when an agent takes the process, including the shared spare, and ends with the process, the agent's deletion or the owner's sign-out. Sensitive kinds are not signed through it yet. goose runs one `goose acp` per agent for this, started when the agent's first session needs it and stopped when the agent is removed. Codex and Pi run one process for all their agents, so that process never carries a token: each agent gets its own, bound to it and revoked when the shared process exits, and only that agent's tool commands receive it (Codex through the thread's `shell_environment_policy.set`, Pi through the agent's shell environment). Windows has no transport yet.
 
 Native agent hook callbacks are described in [Agent hook callbacks](agent-tool-hooks.md).
