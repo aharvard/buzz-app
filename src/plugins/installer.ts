@@ -14,9 +14,16 @@ export type PluginInstallOutcome =
   | "updated"
   | "cancelled"
   | "unavailable";
+type PluginInstallationStatus = "installed" | "absent" | "unavailable";
 export type PluginInstaller = Readonly<{
   /** Opens Settings → Plugins for the user to review; it never installs silently. */
   requestInstall(source: PluginInstallSource): Promise<PluginInstallOutcome>;
+  getInstallationStatus(id: string): PluginInstallationStatus;
+  /** Listen for changes; call getInstallationStatus after subscribing for the current status. */
+  subscribeInstallationStatus(
+    id: string,
+    listener: (status: PluginInstallationStatus) => void,
+  ): () => void;
 }>;
 
 declare module "@deepseek-ai/cordis" {
@@ -250,7 +257,7 @@ function displayName(name: string, fallback: string) {
 }
 
 type InstallHost = Readonly<{
-  plugins: Pick<PluginManager, "snapshot" | "imports">;
+  plugins: Pick<PluginManager, "snapshot" | "subscribe" | "imports">;
   requests: PluginInstallRequests;
   openPlugins(): Promise<{ status: string }>;
 }>;
@@ -263,8 +270,31 @@ export function createPluginInstallCore({
   requests,
   openPlugins,
 }: InstallHost) {
+  const getInstallationStatus = (id: string): PluginInstallationStatus => {
+    const { configuration } = plugins.snapshot();
+    if (configuration.status !== "ready") return "unavailable";
+    return configuration.catalog.plugins.some(
+      (plugin) => plugin.manifest.id === id,
+    )
+      ? "installed"
+      : "absent";
+  };
+
   return {
     holdReview: requests.holdReview,
+    getInstallationStatus,
+    subscribeInstallationStatus(
+      id: string,
+      listener: (status: PluginInstallationStatus) => void,
+    ) {
+      let current = getInstallationStatus(id);
+      return plugins.subscribe(() => {
+        const next = getInstallationStatus(id);
+        if (next === current) return;
+        current = next;
+        listener(next);
+      });
+    },
     async submit(
       source: PluginInstallSource,
       caller: Readonly<{
@@ -329,8 +359,7 @@ export function createPluginInstallerService(
       super(ctx, "pluginInstaller");
     }
 
-    // A method, not an arrow property: Cordis gives it the calling plugin's
-    // context, which is how a request is attributed and tied to its lifetime.
+    // Keep these as methods so Cordis supplies the caller's context for origin and lifetime.
     requestInstall(source: PluginInstallSource): Promise<PluginInstallOutcome> {
       const owner = this.ctx.pluginOwner;
       if (!owner)
@@ -345,6 +374,21 @@ export function createPluginInstallerService(
           return () => void stop();
         },
       });
+    }
+
+    getInstallationStatus(id: string): PluginInstallationStatus {
+      return host.core.getInstallationStatus(id);
+    }
+
+    subscribeInstallationStatus(
+      id: string,
+      listener: (status: PluginInstallationStatus) => void,
+    ): () => void {
+      const caller = this.ctx;
+      const stop = caller.effect(() =>
+        host.core.subscribeInstallationStatus(id, listener),
+      );
+      return () => void stop();
     }
   }
 
