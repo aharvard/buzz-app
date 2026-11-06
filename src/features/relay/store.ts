@@ -412,6 +412,7 @@ export function createChannelStore(
         old.autoJoin === channel.autoJoin &&
         old.landing === channel.landing &&
         old.welcome === channel.welcome &&
+        old.welcomeTitle === channel.welcomeTitle &&
         old.channelType === channel.channelType &&
         old.parentChannelId === channel.parentChannelId &&
         old.huddle === channel.huddle &&
@@ -2258,6 +2259,10 @@ export function createChannelStore(
       ...(type === "stream" || type === "forum" ? { channelType: type } : {}),
       ...(tag(event, "about") ? { description: tag(event, "about") } : {}),
       ...(hasTag(event, "archived", "true") ? { archived: true as const } : {}),
+      // The bare tag says the relay joins new members here now.
+      ...(event.tags.some(([key]) => key === "auto_join")
+        ? { autoJoin: true as const }
+        : {}),
     });
   }
   function openDirectoryChannels(events: readonly RelayEvent[]) {

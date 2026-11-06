@@ -721,8 +721,7 @@ function PreparedMessageMarkdown({
         (element?.tagName === "a" &&
           typeof href === "string" &&
           !!profileKey(href) &&
-          interactive &&
-          !!canOpenLink?.(href));
+          (!interactive || !!canOpenLink?.(href)));
       return (
         <p
           {...props}
@@ -744,7 +743,9 @@ function PreparedMessageMarkdown({
           : safeLinkUrl(target));
       if (href && profileKey(href)) {
         const label = labelText(children);
-        if (!interactive || !canOpenLink?.(href))
+        // A preview shows the chip it will become, without its action; a live
+        // row that cannot open profiles keeps the locator visible instead.
+        if (interactive && !canOpenLink?.(href))
           return (
             <span>
               {children} ({href})

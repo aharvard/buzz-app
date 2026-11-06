@@ -3355,7 +3355,17 @@ test("lifecycle uses dedicated shape-limited host routes, never the message writ
         tags: [
           ["h", id],
           ["landing", "true"],
-          ["welcome", "a\tb"],
+          ["welcome", "a\rb"],
+        ],
+      },
+      {
+        ...template,
+        kind: 9002,
+        tags: [
+          ["h", id],
+          ["landing", "true"],
+          ["welcome", ""],
+          ["welcome_title", "two\nlines"],
         ],
       },
       {
@@ -3439,7 +3449,8 @@ test("lifecycle uses dedicated shape-limited host routes, never the message writ
       tags: [
         ["h", id],
         ["landing", "true"],
-        ["welcome", "Say hi\nhere"],
+        ["welcome", "# Say hi\n\n\t**here**"],
+        ["welcome_title", "Hello"],
       ],
     };
     expect((await h.post("sign", landing)).status).toBe(400);

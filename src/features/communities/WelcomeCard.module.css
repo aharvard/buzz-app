@@ -10,8 +10,7 @@
   overflow-wrap: anywhere;
 }
 .body {
-  margin: var(--space-1) 0 0;
-  /* Plain text: line breaks are the only formatting. */
-  white-space: pre-wrap;
+  margin-block-start: var(--space-1);
+  min-width: 0;
   overflow-wrap: anywhere;
 }

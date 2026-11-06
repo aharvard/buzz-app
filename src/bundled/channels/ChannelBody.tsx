@@ -9,7 +9,10 @@ import { useChannelWindow } from "../../features/relay/react";
 import { useRecoveryOwns } from "../../features/relay/RecoveryNotice";
 import { headRecovering } from "../../features/relay/live-recovery";
 import { clientMetrics } from "../../features/developer/client-metrics";
-import { CommunityWelcomeCard } from "../../features/communities/WelcomeCard";
+import {
+  CommunityWelcomeCard,
+  WelcomeMessage,
+} from "../../features/communities/WelcomeCard";
 import type { CommunityReader } from "../../features/communities/service";
 import { Button } from "../../shared/design-system/ui/Button";
 import styles from "./Channels.module.css";
@@ -26,13 +29,16 @@ export const ChannelBody = memo(function ChannelBody({
   onContentReady,
   landing,
   welcomeMessage,
+  welcomeTitle,
   communities,
 }: {
   onContentReady?(channelId: string): void;
   /** The community's welcome channel: its timeline starts with a welcome. */
   landing?: boolean | undefined;
-  /** Custom welcome text; absent shows the default. */
+  /** Custom welcome message (Markdown source); absent shows the default. */
   welcomeMessage?: string | undefined;
+  /** Custom welcome title; absent shows the default. */
+  welcomeTitle?: string | undefined;
   /** Names the community in the welcome. */
   communities?: CommunityReader | undefined;
   cached: boolean;
@@ -52,7 +58,11 @@ export const ChannelBody = memo(function ChannelBody({
   // The owner's Solo chat is a chat-style timeline that loads history on scroll.
   const {
     session: queries,
+    scope,
     channelId,
+    extensions,
+    onOpenLink,
+    canOpenLink,
     ownSoloConversation: solo,
   } = useConversation();
   // ChannelWorkspace already keys this lifetime by viewer/scope/generation.
@@ -152,8 +162,18 @@ export const ChannelBody = memo(function ChannelBody({
           <CommunityWelcomeCard
             communities={communities}
             scope={queries.scope}
-            message={welcomeMessage}
-          />
+            title={welcomeTitle}
+          >
+            <WelcomeMessage
+              message={welcomeMessage}
+              session={queries}
+              scope={scope}
+              channelId={channelId}
+              extensions={extensions}
+              onOpenLink={onOpenLink}
+              canOpenLink={canOpenLink}
+            />
+          </CommunityWelcomeCard>
         )
       }
     />

@@ -147,24 +147,41 @@ first, ahead of the starter channels. Messages opens it when there is no saved
 selection, and its timeline starts with a welcome card (see
 [local-first launch](channels.md#local-first-launch)).
 
-Owners and admins set it under **Community admin → Welcome**. The card appears
-only when the relay advertises the extension and the relay-signed roster gives
-the viewer an owner or admin role. A failed support read hides the card. Each
-time the card opens, it reads the current designation from a fresh NIP-11
-document, then reads that channel's message with a strong metadata read. If
-nothing is designated yet, the channel field starts empty and must be chosen
-before Save. The picker lists public, unarchived stream channels. The message
-editor starts with the custom text or the default, and checks the relay's rules
-as the admin types: 1–1,000 characters, and no control characters other than
-line breaks. Line endings are normalized and the message is trimmed before
-sending. A message matching the default is saved as the default rather than as
-custom text. **Restore default message** changes only the draft. A preview shows
-the card as members will see it. Save sends the whole state and confirms it as
-described in [channel lifecycle](channels.md#channel-lifecycle). A relay refusal is shown with
+Owners and admins set it under **Community admin → Welcome**, which appears
+when the relay-signed roster gives the viewer an owner or admin role. Each time
+the card opens, it reads a fresh NIP-11 document. On a relay without the
+extension it says so and shows only the starter channels. Otherwise it reads the
+current designation from that document, then that channel's title and message
+with a strong metadata read. If nothing is designated yet, the channel field
+starts empty and must be chosen before Save. The picker lists public, unarchived
+stream channels.
+
+The title starts with the custom title or the default, "Welcome to" and the
+community's name: 1–120 characters on one line. The message starts with the
+custom text or the default. It is Markdown, rendered as messages are:
+`[@Name](nostr:npub…)` identity links show the person without notifying them,
+and channel or message links pasted from **Copy link** open in place. It takes
+1–4,000 characters, with no control characters other than line breaks and tabs.
+Both are checked against the relay's rules as the admin types. Line endings are
+normalized and both are trimmed before sending. A title or message matching the
+default is saved as the default rather than as custom text. **Restore defaults**
+resets both in the draft. A preview shows the card as members will see it, with
+its links inert. Save sends the whole state and confirms it as described in
+[channel lifecycle](channels.md#channel-lifecycle). A relay refusal is shown with
 its reason and the draft is kept. A save the relay has not shown yet keeps the
-draft with Save disabled until **Check again** reads the relay's state. Archive, Delete, Make private and expiry are
-not disabled for the welcome channel yet; the relay refuses them, and that
-refusal is shown like any other lifecycle error.
+draft with Save disabled until **Check again** reads the relay's state. Archive,
+Delete, Make private and expiry are not disabled for the welcome channel yet; the
+relay refuses them, and that refusal is shown like any other lifecycle error.
+
+**Also add new members to** lists the community's open, unarchived stream
+channels, each with a switch for its starter flag. The welcome channel comes
+first, fixed on, because new members always join it; its own flag is left
+unchanged. A switch takes effect at once: it shows the relay-confirmed state, or
+the relay's refusal or a prompt to try again beside its row. One change runs at a
+time, and Save waits for it. Owners and admins can flag a channel they are not in.
+Turning a channel on adds people who join from then on, not current members; in
+an open community it also adds people who come back and have never been in that
+channel.
 
 ## Import from the previous desktop app
 

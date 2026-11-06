@@ -21,6 +21,7 @@ import {
   ownerAgentGrant,
   type ChannelLifecycleCommand,
   type ChannelLifecycleSettings,
+  type WelcomeCommand,
 } from "./channel-lifecycle-protocol";
 
 /** No automatic or same-dialog retry after a request may have reached the relay. */
@@ -33,11 +34,13 @@ export class ChannelLifecycleUnconfirmed extends Error {
   }
 }
 
-/** A channel's signed welcome state. `welcome` is absent for the default message. */
+/** A channel's signed welcome state. `welcome` and `welcomeTitle` are absent
+ * for the default message and title. */
 export type ChannelLanding = Readonly<{
   /** Signed metadata currently designates this channel. */
   landing?: true;
   welcome?: string;
+  welcomeTitle?: string;
   name?: string;
 }>;
 
@@ -69,10 +72,10 @@ export interface ChannelLifecycleCapability {
     signal?: AbortSignal,
   ): Promise<ChannelLanding | undefined>;
   /** Owner/admin command: make this the community's welcome channel with
-   * `welcome` as its message, `""` for the default. */
+   * `welcome` as its message and title, `""` for either default. */
   setLanding(
     channelId: string,
-    welcome: string,
+    welcome: WelcomeCommand,
     signal?: AbortSignal,
     /** Checked synchronously right before publishing; false publishes nothing. */
     active?: () => boolean,
@@ -468,12 +471,11 @@ export function createChannelLifecycle({
             return false;
           };
           // The relay accepts the auto-join flag only from community owners
-          // and admins, a role the channel's own records cannot show. Check
-          // what signed metadata can: an active public stream channel.
+          // and admins, who need not belong to the channel; that role is not
+          // in the channel's own records. Check what signed metadata can: an
+          // active public stream channel.
           const flaggable = async () => {
-            assertAccess(id);
             const metadata = await read([39000], id, signal);
-            assertAccess(id);
             const channel = lifecycleRecord(metadata, 39000, id, relayAuthor);
             if (
               !channel ||
@@ -560,7 +562,8 @@ export function createChannelLifecycle({
                   record.tags.some(([key]) => key === "auto_join") ===
                     (action === "auto-join-on")
                 ) {
-                  acceptDiscovery([record]);
+                  // Only a channel this viewer reads joins the discovery state.
+                  if (canAccess(id)) acceptDiscovery([record]);
                   return;
                 }
               } else if (action === "archive" || action === "unarchive") {
@@ -612,7 +615,7 @@ export function createChannelLifecycle({
     },
     async setLanding(
       value: string,
-      welcome: string,
+      welcome: WelcomeCommand,
       caller?: AbortSignal,
       active?: () => boolean,
     ) {
@@ -649,13 +652,18 @@ export function createChannelLifecycle({
             throw new DOMException("Channel action cancelled", "AbortError");
           scope.published = true;
           await writer.publish(signed, signal);
-          // Readback is the bare `landing` designation plus the stored message,
-          // absent for the default.
+          // Readback is the bare `landing` designation plus the stored message
+          // and title, each absent for its default.
           for (const delay of [0, 250, 750, 1500]) {
             await pause(delay, signal);
             const record = await readMetadata(id, signal, true);
             const state = record && landingTags(record.tags);
-            if (record && state?.landing && (state.welcome ?? "") === welcome) {
+            if (
+              record &&
+              state?.landing &&
+              (state.welcome ?? "") === welcome.message &&
+              (state.welcomeTitle ?? "") === welcome.title
+            ) {
               if (canAccess(id)) acceptDiscovery([record]);
               return;
             }

@@ -570,23 +570,25 @@ the returned command, and confirms relay-owned state before removing a row. Arch
 confirmed Delete/Leave use the existing access-loss purge. Commands use narrow
 development-broker routes or the packaged native `relay_channel_sign` and
 `relay_channel_publish` commands, never the message outbox or automatic replay.
-The same route carries the **Starter channel for new members** switch as two commands
-without a confirmation dialog, `auto-join-on` and `auto-join-off`, each a `9002`
-with `auto_join=true|false`. The lifecycle owner requires fresh relay metadata for an
-active public stream channel before signing (channel roles cannot show community
-ownership; the relay accepts the flag only from community owners and admins) and
-confirms the result from the republished `39000`: the relay advertises the flag
-as a bare `auto_join` tag only while it is in effect, so success is that tag's
-presence or absence, not the written value.
 The community **Welcome** settings card ([communities](communities.md#welcome-channel))
-uses the same route for the welcome channel. Each save is one `9002` carrying the
-full state, `landing=true` plus `welcome=<text>`, or an empty `welcome` for the
-default message; the relay accepts a repeat of the current state. Before signing
+uses the same route for its starter-channel switches, two commands without a
+confirmation dialog, `auto-join-on` and `auto-join-off`, each a `9002` with
+`auto_join=true|false`. The lifecycle owner requires fresh relay metadata for an
+active public stream channel before signing, whether or not the viewer is in it
+(channel roles cannot show community ownership; the relay accepts the flag only
+from community owners and admins), and confirms the result from the republished
+`39000`: the relay advertises the flag as a bare `auto_join` tag only while it is
+in effect, so success is that tag's presence or absence, not the written value.
+That reread updates the channel list only for a channel the viewer can access.
+The card's welcome form uses the same route for the welcome channel. Each save is
+one `9002` carrying the full state, `landing=true`, `welcome=<text>` and
+`welcome_title=<text>`, each empty for its default; the relay accepts a repeat of
+the current state, and keeps the title when a `welcome_title` tag is absent. Before signing
 and again before publishing, the lifecycle owner requires fresh relay metadata
 for an active, open stream channel without an expiry. It confirms the save with a
 strong reread of the target's `39000`: the relay advertises a bare `landing` tag
-there while the channel is designated, plus a `welcome` tag when the message is
-custom. A `welcome` tag without `landing` is ignored. The relay's `invalid:`
+there while the channel is designated, plus `welcome` and `welcome_title` tags
+while the message and title are custom. Neither tag counts without `landing`. The relay's `invalid:`
 reason is shown with the draft kept. When the result can't be confirmed, the
 card keeps the draft, disables Save and offers **Check again**, which reads the
 designation and message from the relay afresh instead of republishing; a change
@@ -598,12 +600,13 @@ still abort its signal. A rejected publication or definitive confirmation-read
 failure still fails the command; an aborted read alone never confirms it. These signals
 do not forcibly interrupt an in-flight native publication IPC.
 Both hosts admit only the exact two-tag `9002` shape with `archived=true` (Archive),
-`archived=false` (Unarchive) or `auto_join=true|false` (the switch), and the
-three-tag welcome shape with `landing=true` and a `welcome` of 1–1,000 characters
-(no control characters except line breaks) or empty; other values,
+`archived=false` (Unarchive) or `auto_join=true|false` (a starter switch), and the
+welcome shape: `landing=true`, a `welcome` of 1–4,000 characters (no control
+characters except line breaks and tabs) or empty, then optionally a
+`welcome_title` of 1–120 characters (no control characters) or empty; other values,
 extra tags, cross-route commands and
 altered or foreign signatures are rejected. Hosts without this capability display
-an unavailable notice. Native Unarchive, the auto-join switch and the welcome
+an unavailable notice. Native Unarchive, the starter switches and the welcome
 command require rebuilding/restarting the desktop
 binary; updating the frontend alone does not update the Rust validator. Rust
 validator and production-IPC tests cover both values, but do not establish an
@@ -679,23 +682,14 @@ row are omitted.
 Duration uses Create's Ongoing/Temporary cards. Access controls live in the members
 dialog, separate from the text and lifespan draft. These details controls stage
 changes; none publishes immediately.
-**Starter channel for new members**, between Description and Members, is separate: an
-immediate switch that publishes its own narrow `9002` (see
-[Channel lifecycle](#channel-lifecycle)) and shows pending, the relay's refusal
-or, when the change is not confirmed, a prompt to try again beside itself. Once the
-channel's metadata shows the value that toggle wanted, the prompt clears, so trying
-again cannot undo a change that landed. It appears only to community owners and admins
-(the relay-signed kind `13534` roster) who are members of an active public stream
-channel, not previewing it or a guest in it, and only once the channel is loaded
-live rather than from cache. The relay checks the community role, not channel
-membership, so the gate is display-only and narrower: an owner or admin must join
-the channel to see the switch.
-Archiving a starter channel or making it private hides the switch and pauses the
-flag without clearing it: the relay stops advertising and applying it, refuses
-to change it on a private channel, and resumes adding new members on Unarchive
-or once the channel is public again. For a starter channel, the Archive and
-**Change general access?** (to Private) confirmations say so, so an owner or
-admin can turn the switch off first.
+Starter channels are chosen in **Settings → Community admin → Welcome** (see
+[communities](communities.md#welcome-channel)), not here.
+Archiving a starter channel or making it private removes it from that list and
+pauses the flag without clearing it: the relay stops advertising and applying it,
+refuses to change it on a private channel, and resumes adding new members on
+Unarchive or once the channel is public again. For a starter channel, the Archive
+and **Change general access?** (to Private) confirmations say so and point to the
+Welcome settings, so an owner or admin can turn the flag off first.
 **Save changes** submits the draft together and is enabled only for valid, changed values.
 **Cancel** explicitly discards edits and closes without confirmation. Close, Escape
 and backdrop clicks close untouched forms immediately; changed drafts first show

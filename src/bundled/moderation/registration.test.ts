@@ -19,8 +19,8 @@ vi.mock("../../features/communities/api", async (importOriginal) => ({
 const relayKey = "f".repeat(64);
 const owner = "0".repeat(64);
 
-/** A ready connection whose relay-signed roster names the viewer an owner. */
-function relay(): RelayData {
+/** A ready connection whose relay-signed roster gives the viewer `role`. */
+function relay(role = "owner"): RelayData {
   const session = {
     relayAuthor: relayKey,
     read: async () => [
@@ -31,7 +31,7 @@ function relay(): RelayData {
         created_at: 1,
         content: "",
         sig: "",
-        tags: [["-"], ["member", owner, "owner"]],
+        tags: [["-"], ["member", owner, role]],
       },
     ],
   };
@@ -102,21 +102,23 @@ it("registers the Membership card under the key the community rail opens", async
 });
 
 it.each([
-  [true, true],
-  [false, false],
+  ["owner", true],
+  ["member", false],
 ])(
-  "shows the Welcome card to owners when the relay advertises welcome channels: %s",
-  async (landingChannels, visible) => {
+  "shows the Welcome card to a community %s on any relay: %s",
+  async (role, visible) => {
+    // Starter channels need no relay support; the card hides only the
+    // welcome form when the relay lacks it.
     vi.mocked(communityRequest).mockResolvedValue({
       policy: null,
-      landingChannels,
+      landingChannels: false,
     });
     const root = new Context();
     root.provide("pluginStatus", {
       isActive: () => true,
       subscribe: () => () => {},
     });
-    const data = relay();
+    const data = relay(role);
     root.provide("relay", data);
     const access = createAdminAccess(
       data,
@@ -139,15 +141,11 @@ it.each([
     await fiber.await();
     await flush();
 
+    // The roster settles both cards; a member sees neither.
     await vi.waitFor(() =>
-      expect(cards.visibility("buzz.moderation/welcome")).toBe(visible),
+      expect(cards.visibility(MEMBERSHIP_SECTION)).toBe(visible),
     );
-    expect(communityRequest).toHaveBeenCalledWith(
-      "https://primary.example",
-      "info",
-      undefined,
-      expect.any(AbortSignal),
-    );
+    expect(cards.visibility("buzz.moderation/welcome")).toBe(visible);
     const card = cards
       .snapshot()
       .find((entry) => entry.key === "buzz.moderation/welcome");

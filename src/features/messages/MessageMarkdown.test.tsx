@@ -1088,9 +1088,13 @@ it("keeps explicit profile identities visible but inert when Profiles is unavail
   expect(screen.queryByRole("link")).toBeNull();
   expect(view.container.textContent).toContain(target);
   expect(view.container.querySelector("[data-leading-mention]")).toBeNull();
-  view.rerender(
+});
+
+it("shows an explicit profile identity as an inert chip in a preview", () => {
+  const target = profileTarget(mic);
+  const view = renderDom(
     <MessageMarkdown
-      {...props(`[@Mic](${target})`, {
+      {...props(`[@Mic](${target}) says hi`, {
         patch: { mentions: [] },
         interactive: false,
       })}
@@ -1098,7 +1102,13 @@ it("keeps explicit profile identities visible but inert when Profiles is unavail
   );
   expect(screen.queryByRole("button")).toBeNull();
   expect(screen.queryByRole("link")).toBeNull();
-  expect(view.container.textContent).toContain("Mic");
+  // The chip a message would show, without its profile action.
+  const chip = view.container.querySelector("[data-mention-kind]");
+  expect(chip?.tagName).toBe("SPAN");
+  expect(chip).toHaveAttribute("data-profile-target", target);
+  expect(chip).toHaveTextContent("Mic");
+  expect(view.container.textContent).not.toContain(target);
+  expect(chip?.closest("p")).toHaveAttribute("data-leading-mention");
 });
 
 it.each([

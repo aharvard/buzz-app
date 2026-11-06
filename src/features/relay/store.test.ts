@@ -141,8 +141,23 @@ describe("channel store", () => {
       ]),
     ]);
     await flush();
-    expect(queries.list().channels[0]).not.toBe(landing);
-    expect(queries.list().channels[0]?.welcome).toBe("Hello");
+    const welcomed = queries.list().channels[0];
+    expect(welcomed).not.toBe(landing);
+    expect(welcomed?.welcome).toBe("Hello");
+
+    // A title alone is a change too.
+    queries.refreshList?.();
+    next().respond([
+      roster(relay, "work", [viewer.pubkey]),
+      metadata(relay, "work", "Work", 1_700_000_002, [
+        ["landing"],
+        ["welcome", "Hello"],
+        ["welcome_title", "Hi, Work"],
+      ]),
+    ]);
+    await flush();
+    expect(queries.list().channels[0]).not.toBe(welcomed);
+    expect(queries.list().channels[0]?.welcomeTitle).toBe("Hi, Work");
     store.dispose();
   });
   it("preserves summary identity on preview refreshes and detects same-length DM roster changes", () => {

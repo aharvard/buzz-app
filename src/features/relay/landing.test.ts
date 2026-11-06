@@ -4,31 +4,58 @@ import {
   landingTags,
   normalizeWelcome,
   validWelcomeCommand,
+  validWelcomeTitleCommand,
   welcomeTextProblem,
+  welcomeTitleProblem,
 } from "./landing";
 
 describe("landingTags", () => {
-  it("reads the bare designation and its custom message", () => {
+  it("reads the bare designation and its custom message and title", () => {
     expect(landingTags([["d", "x"]])).toEqual({});
     expect(landingTags([["landing"]])).toEqual({ landing: true });
     expect(landingTags([["landing"], ["welcome", "Hi\nall"]])).toEqual({
       landing: true,
       welcome: "Hi\nall",
     });
+    expect(
+      landingTags([
+        ["landing"],
+        ["welcome", "# Hi\n\n\t**all**"],
+        ["welcome_title", "Hello, Acme"],
+      ]),
+    ).toEqual({
+      landing: true,
+      welcome: "# Hi\n\n\t**all**",
+      welcomeTitle: "Hello, Acme",
+    });
+    // Each part is customized on its own.
+    expect(landingTags([["landing"], ["welcome_title", "Hello"]])).toEqual({
+      landing: true,
+      welcomeTitle: "Hello",
+    });
   });
 
-  it("ignores a message without the designation", () => {
+  it("ignores a message or title without the designation", () => {
     // A stale tag can survive on the previous welcome channel.
-    expect(landingTags([["welcome", "Old"]])).toEqual({});
+    expect(
+      landingTags([
+        ["welcome", "Old"],
+        ["welcome_title", "Old"],
+      ]),
+    ).toEqual({});
   });
 
-  it("falls back to the default for a blank, repeated or invalid message", () => {
+  it("falls back to the default for a blank, repeated or invalid message or title", () => {
     for (const tags of [
       [["landing"], ["welcome", ""]],
       [["landing"], ["welcome", "  "]],
       [["landing"], ["welcome"]],
       [["landing"], ["welcome", "a"], ["welcome", "b"]],
-      [["landing"], ["welcome", "tab\there"]],
+      [["landing"], ["welcome", "cr\rhere"]],
+      [["landing"], ["welcome_title", ""]],
+      [["landing"], ["welcome_title", " "]],
+      [["landing"], ["welcome_title", "two\nlines"]],
+      [["landing"], ["welcome_title", "a"], ["welcome_title", "b"]],
     ])
       expect(landingTags(tags)).toEqual({ landing: true });
   });
@@ -40,16 +67,18 @@ describe("welcome text", () => {
   });
 
   it("mirrors the relay's limits in Unicode scalar values", () => {
-    expect(welcomeTextProblem("é".repeat(1000))).toBeUndefined();
+    expect(welcomeTextProblem("é".repeat(4000))).toBeUndefined();
     // Surrogate pairs count once, as Rust `chars()` does.
-    expect(welcomeTextProblem("😀".repeat(1000))).toBeUndefined();
-    expect(welcomeTextProblem("a".repeat(1001))).toBe("long");
+    expect(welcomeTextProblem("😀".repeat(4000))).toBeUndefined();
+    expect(welcomeTextProblem("a".repeat(4001))).toBe("long");
     expect(welcomeTextProblem(" \n ")).toBe("empty");
     // U+FEFF is not Unicode White_Space: the relay keeps it, so both hosts do.
     expect(welcomeTextProblem("\uFEFF")).toBeUndefined();
     expect(welcomeTextProblem("\u2003\u3000")).toBe("empty");
+    // Markdown needs line breaks and tabs for structure and code.
     expect(welcomeTextProblem("line\nbreak")).toBeUndefined();
-    for (const text of ["tab\t", "cr\r", "nul\u0000", "del\u007f", "c1\u0085"])
+    expect(welcomeTextProblem("- item\n\t- nested")).toBeUndefined();
+    for (const text of ["cr\r", "nul\u0000", "vt\u000b", "del\u007f", "c1\u0085"])
       expect(welcomeTextProblem(text)).toBe("control");
   });
 
@@ -57,6 +86,24 @@ describe("welcome text", () => {
     expect(validWelcomeCommand("")).toBe(true);
     expect(validWelcomeCommand("Hello")).toBe(true);
     expect(validWelcomeCommand(" ")).toBe(false);
+  });
+});
+
+describe("welcome title", () => {
+  it("mirrors the relay's one-line limits in Unicode scalar values", () => {
+    expect(welcomeTitleProblem("é".repeat(120))).toBeUndefined();
+    expect(welcomeTitleProblem("😀".repeat(120))).toBeUndefined();
+    expect(welcomeTitleProblem("a".repeat(121))).toBe("long");
+    expect(welcomeTitleProblem(" ")).toBe("empty");
+    expect(welcomeTitleProblem("\uFEFF")).toBeUndefined();
+    for (const text of ["two\nlines", "tab\t", "cr\r", "del\u007f", "c1\u0085"])
+      expect(welcomeTitleProblem(text)).toBe("control");
+  });
+
+  it("admits the empty default marker only as a command", () => {
+    expect(validWelcomeTitleCommand("")).toBe(true);
+    expect(validWelcomeTitleCommand("Hello")).toBe(true);
+    expect(validWelcomeTitleCommand(" ")).toBe(false);
   });
 });
 

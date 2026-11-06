@@ -17,5 +17,10 @@ community where you are an owner or admin.
 
 On relays that support it, **Settings → Community admin → Welcome** lets an
 owner or admin choose the public channel new members join and open first, and
-the message shown at the start of that channel. Saving moves the welcome to the
-chosen channel; people already in the community keep their channels.
+the title and Markdown message shown at the start of that channel. Saving moves
+the welcome to the chosen channel; people already in the community keep their
+channels.
+
+Below that, **Also add new members to** turns other open channels into starter
+channels, which new members join too. Each switch applies at once, to people who
+join afterwards. The list also appears on relays without a welcome channel.

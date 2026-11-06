@@ -2179,6 +2179,23 @@ describe("auto-join switch", () => {
     },
   );
 
+  it("flags a channel the viewer has not joined, keeping it out of discovery", async () => {
+    // Community owners and admins need not belong to the channel.
+    const h = publicStream();
+    h.deny();
+    try {
+      await h.owner.capability.run("auto-join-on", id);
+      expect(h.publish).toHaveBeenCalledOnce();
+      expect(h.read.mock.lastCall?.[0]?.[0]).toMatchObject({
+        consistency: "strong",
+        "#d": [id],
+      });
+      expect(h.acceptDiscovery).not.toHaveBeenCalled();
+    } finally {
+      h.owner.dispose();
+    }
+  });
+
   it("surfaces the relay's refusal and keeps an unconfirmed flag uncertain", async () => {
     const h = publicStream();
     try {
@@ -2205,6 +2222,7 @@ describe("auto-join switch", () => {
 });
 
 describe("welcome channel", () => {
+  const welcome = (message = "", title = "") => ({ message, title });
   // The viewer is a relay owner/admin but need not belong to the channel.
   function welcomeStream(tags: string[][] = [["public"]], type = "stream") {
     const h = harness("member", type);
@@ -2221,8 +2239,13 @@ describe("welcome channel", () => {
     h.publish.mockImplementation(async (event: RelayEvent) => {
       if (event.kind !== 9002) return;
       const text = event.tags.find(([key]) => key === "welcome")?.[1];
+      const title = event.tags.find(([key]) => key === "welcome_title")?.[1];
       h.setEvents([
-        metadata([["landing"], ...(text ? [["welcome", text]] : [])]),
+        metadata([
+          ["landing"],
+          ...(text ? [["welcome", text]] : []),
+          ...(title ? [["welcome_title", title]] : []),
+        ]),
         ...h.getEvents().filter((event) => event.kind !== 39000),
       ]);
     });
@@ -2233,14 +2256,18 @@ describe("welcome channel", () => {
     const clock = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
     const h = welcomeStream();
     try {
-      await h.owner.capability.setLanding(id, "Say hi\nhere");
+      await h.owner.capability.setLanding(
+        id,
+        welcome("# Say hi\n\n\t**here**", "Hello, Acme"),
+      );
       expect(h.sign.mock.calls[0]?.[0]).toEqual(
-        landingTemplate(id, "Say hi\nhere"),
+        landingTemplate(id, welcome("# Say hi\n\n\t**here**", "Hello, Acme")),
       );
       expect(h.sign.mock.calls[0]?.[0]?.tags).toEqual([
         ["h", id],
         ["landing", "true"],
-        ["welcome", "Say hi\nhere"],
+        ["welcome", "# Say hi\n\n\t**here**"],
+        ["welcome_title", "Hello, Acme"],
       ]);
       expect(h.publish).toHaveBeenCalledOnce();
       // Only signed metadata is read, and the confirmation is strong.
@@ -2258,15 +2285,22 @@ describe("welcome channel", () => {
     }
   });
 
-  it("restores the default with an empty message and confirms its absence", async () => {
+  it("restores the defaults with empty values and confirms their absence", async () => {
     const h = welcomeStream();
     h.setEvents([
-      h.metadata([["landing"], ["welcome", "Old"]]),
+      h.metadata([
+        ["landing"],
+        ["welcome", "Old"],
+        ["welcome_title", "Old title"],
+      ]),
       ...h.getEvents().slice(1),
     ]);
     try {
-      await h.owner.capability.setLanding(id, "");
-      expect(h.sign.mock.calls[0]?.[0]?.tags[2]).toEqual(["welcome", ""]);
+      await h.owner.capability.setLanding(id, welcome());
+      expect(h.sign.mock.calls[0]?.[0]?.tags.slice(2)).toEqual([
+        ["welcome", ""],
+        ["welcome_title", ""],
+      ]);
       await expect(h.owner.capability.readLanding(id)).resolves.toEqual({
         landing: true,
         name: "Lobby",
@@ -2276,16 +2310,28 @@ describe("welcome channel", () => {
     }
   });
 
-  it("reads the current message, ignoring one without the designation", async () => {
+  it("reads the current message and title, ignoring them without the designation", async () => {
     const h = welcomeStream();
     try {
-      h.setEvents([h.metadata([["landing"], ["welcome", "Hi"]])]);
+      h.setEvents([
+        h.metadata([
+          ["landing"],
+          ["welcome", "Hi"],
+          ["welcome_title", "Hello"],
+        ]),
+      ]);
       await expect(h.owner.capability.readLanding(id)).resolves.toEqual({
         landing: true,
         welcome: "Hi",
+        welcomeTitle: "Hello",
         name: "Lobby",
       });
-      h.setEvents([h.metadata([["welcome", "Stale"]])]);
+      h.setEvents([
+        h.metadata([
+          ["welcome", "Stale"],
+          ["welcome_title", "Stale"],
+        ]),
+      ]);
       await expect(h.owner.capability.readLanding(id)).resolves.toEqual({
         name: "Lobby",
       });
@@ -2321,7 +2367,7 @@ describe("welcome channel", () => {
       ...h.getEvents().slice(1),
     ]);
     try {
-      await h.owner.capability.setLanding(id, "");
+      await h.owner.capability.setLanding(id, welcome());
       expect(h.acceptDiscovery).toHaveBeenCalledOnce();
     } finally {
       h.owner.dispose();
@@ -2339,7 +2385,9 @@ describe("welcome channel", () => {
     async (tags, type) => {
       const h = welcomeStream(tags, type);
       try {
-        await expect(h.owner.capability.setLanding(id, "")).rejects.toThrow(
+        await expect(
+          h.owner.capability.setLanding(id, welcome()),
+        ).rejects.toThrow(
           "Only active public channels that don’t expire can welcome new members.",
         );
         expect(h.sign).not.toHaveBeenCalled();
@@ -2349,12 +2397,22 @@ describe("welcome channel", () => {
     },
   );
 
-  it.each([" ", "a".repeat(1001), "tab\there"])(
-    "refuses an invalid message %j before reading or signing",
-    async (text) => {
+  it.each([
+    [" ", ""],
+    ["a".repeat(4001), ""],
+    ["cr\rhere", ""],
+    ["", " "],
+    ["", "a".repeat(121)],
+    ["", "two\nlines"],
+    ["", "tab\there"],
+  ])(
+    "refuses an invalid message %j or title %j before reading or signing",
+    async (message, title) => {
       const h = welcomeStream();
       try {
-        await expect(h.owner.capability.setLanding(id, text)).rejects.toThrow();
+        await expect(
+          h.owner.capability.setLanding(id, welcome(message, title)),
+        ).rejects.toThrow();
         expect(h.read).not.toHaveBeenCalled();
         expect(h.sign).not.toHaveBeenCalled();
       } finally {
@@ -2372,29 +2430,37 @@ describe("welcome channel", () => {
           "invalid: landing requires an open, unarchived channel without a ttl",
         ),
       );
-      await expect(h.owner.capability.setLanding(id, "")).rejects.toMatchObject(
-        {
-          reason:
-            "invalid: landing requires an open, unarchived channel without a ttl",
-        },
-      );
+      await expect(
+        h.owner.capability.setLanding(id, welcome()),
+      ).rejects.toMatchObject({
+        reason:
+          "invalid: landing requires an open, unarchived channel without a ttl",
+      });
       // An acknowledged write whose readback never shows the designation.
       h.publish.mockImplementationOnce(async () => {});
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       const pending = expect(
-        h.owner.capability.setLanding(id, ""),
+        h.owner.capability.setLanding(id, welcome()),
       ).rejects.toBeInstanceOf(ChannelLifecycleUnconfirmed);
       await vi.advanceTimersByTimeAsync(2500);
       await pending;
-      // A readback whose message differs is not a confirmation either.
+      // A readback whose message or title differs is not a confirmation either.
       h.publish.mockImplementationOnce(async () => {
         h.setEvents([h.metadata([["landing"], ["welcome", "Other"]])]);
       });
       const differing = expect(
-        h.owner.capability.setLanding(id, "Mine"),
+        h.owner.capability.setLanding(id, welcome("Mine")),
       ).rejects.toBeInstanceOf(ChannelLifecycleUnconfirmed);
       await vi.advanceTimersByTimeAsync(2500);
       await differing;
+      h.publish.mockImplementationOnce(async () => {
+        h.setEvents([h.metadata([["landing"], ["welcome", "Mine"]])]);
+      });
+      const untitled = expect(
+        h.owner.capability.setLanding(id, welcome("Mine", "Hello")),
+      ).rejects.toBeInstanceOf(ChannelLifecycleUnconfirmed);
+      await vi.advanceTimersByTimeAsync(2500);
+      await untitled;
     } finally {
       vi.useRealTimers();
       h.owner.dispose();
@@ -2405,7 +2471,7 @@ describe("welcome channel", () => {
     const h = welcomeStream();
     try {
       await expect(
-        h.owner.capability.setLanding(id, "", undefined, () => false),
+        h.owner.capability.setLanding(id, welcome(), undefined, () => false),
       ).rejects.toMatchObject({ name: "AbortError" });
       expect(h.publish).not.toHaveBeenCalled();
     } finally {
@@ -2413,18 +2479,28 @@ describe("welcome channel", () => {
     }
   });
 
-  it("admits only the exact landing command", () => {
+  it("admits only the exact landing command, with or without a title", () => {
     const base = { kind: 9002, content: "", created_at: 1 };
-    expect(() =>
-      validateLifecycleTemplate({
-        ...base,
-        tags: [
-          ["h", id],
-          ["landing", "true"],
-          ["welcome", ""],
-        ],
-      }),
-    ).not.toThrow();
+    for (const tags of [
+      [
+        ["h", id],
+        ["landing", "true"],
+        ["welcome", ""],
+      ],
+      [
+        ["h", id],
+        ["landing", "true"],
+        ["welcome", "a\tb"],
+        ["welcome_title", ""],
+      ],
+      [
+        ["h", id],
+        ["landing", "true"],
+        ["welcome", ""],
+        ["welcome_title", "Hello"],
+      ],
+    ])
+      expect(() => validateLifecycleTemplate({ ...base, tags })).not.toThrow();
     for (const tags of [
       [
         ["h", id],
@@ -2444,12 +2520,43 @@ describe("welcome channel", () => {
       [
         ["h", id],
         ["landing", "true"],
-        ["welcome", "a\tb"],
+        ["welcome", "a\rb"],
       ],
       [
         ["h", id],
         ["landing", "true"],
         ["welcome", "", "extra"],
+      ],
+      [
+        ["h", id],
+        ["landing", "true"],
+        ["welcome", ""],
+        ["welcome_title", "two\nlines"],
+      ],
+      [
+        ["h", id],
+        ["landing", "true"],
+        ["welcome", ""],
+        ["welcome_title", " "],
+      ],
+      [
+        ["h", id],
+        ["landing", "true"],
+        ["welcome_title", ""],
+        ["welcome", ""],
+      ],
+      [
+        ["h", id],
+        ["landing", "true"],
+        ["welcome", ""],
+        ["welcome_title", "", "extra"],
+      ],
+      [
+        ["h", id],
+        ["landing", "true"],
+        ["welcome", ""],
+        ["welcome_title", ""],
+        ["welcome_title", ""],
       ],
       [
         ["h", id],

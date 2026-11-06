@@ -51,8 +51,10 @@ export type ChannelSummary = Readonly<{
   autoJoin?: true;
   /** Relay-signed welcome channel: new members join and open it first. */
   landing?: true;
-  /** Custom welcome message; only present on the welcome channel. */
+  /** Custom welcome message (Markdown source); only on the welcome channel. */
   welcome?: string;
+  /** Custom welcome title; only on the welcome channel. */
+  welcomeTitle?: string;
   /** Presentation-only parent from signed channel metadata; never grants access. */
   parentChannelId?: string | undefined;
   /** Marked Huddle room; presented through its parent conversation, not the sidebar. */
@@ -297,7 +299,7 @@ export interface ChannelQueries {
    * resolves through `refer`. Empty while the directory is cold or in flight. */
   openDirectory?(): readonly Pick<
     ChannelSummary,
-    "id" | "name" | "description" | "channelType" | "archived"
+    "id" | "name" | "description" | "channelType" | "archived" | "autoJoin"
   >[];
   /** The open channels to browse: a first read's pages so far as they land,
    * otherwise `openDirectory`'s. Display only, like `openDirectory`. */

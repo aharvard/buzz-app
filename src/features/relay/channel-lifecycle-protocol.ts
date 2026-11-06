@@ -1,7 +1,7 @@
 import type { EventTemplate } from "nostr-tools";
 import type { ChannelSummary } from "./contracts.ts";
 import { newer, type RelayEvent } from "./events.ts";
-import { validWelcomeCommand } from "./landing.ts";
+import { validWelcomeCommand, validWelcomeTitleCommand } from "./landing.ts";
 
 export type ChannelLifecycleAction =
   | "archive"
@@ -58,11 +58,14 @@ export function lifecycleTemplate(
   return event;
 }
 
+/** The welcome's two parts; `""` restores the default for that part. */
+export type WelcomeCommand = Readonly<{ message: string; title: string }>;
+
 /**
  * Makes a channel the community's welcome channel with its full welcome
- * state. `""` restores the default message; the relay accepts a repeat.
+ * state. The relay accepts a repeat.
  */
-export function landingTemplate(channelId: string, welcome: string) {
+export function landingTemplate(channelId: string, welcome: WelcomeCommand) {
   const event = {
     kind: 9002,
     created_at: Math.floor(Date.now() / 1000),
@@ -70,21 +73,31 @@ export function landingTemplate(channelId: string, welcome: string) {
     tags: [
       ["h", lifecycleChannelId(channelId)],
       ["landing", "true"],
-      ["welcome", welcome],
+      ["welcome", welcome.message],
+      ["welcome_title", welcome.title],
     ],
   };
   validateLifecycleTemplate(event);
   return event;
 }
 
+/** The full-state form, or the older form without a title (which keeps it). */
 function landingCommand(tags: string[][]) {
+  const value = (index: number, name: string) => {
+    const tag = tags[index];
+    return tag?.length === 2 && tag[0] === name && typeof tag[1] === "string"
+      ? tag[1]
+      : undefined;
+  };
+  const message = value(2, "welcome");
+  const title = tags.length === 4 ? value(3, "welcome_title") : "";
   return (
-    tags.length === 3 &&
+    (tags.length === 3 || tags.length === 4) &&
     JSON.stringify(tags[1]) === JSON.stringify(["landing", "true"]) &&
-    tags[2]?.length === 2 &&
-    tags[2][0] === "welcome" &&
-    typeof tags[2][1] === "string" &&
-    validWelcomeCommand(tags[2][1])
+    message !== undefined &&
+    validWelcomeCommand(message) &&
+    title !== undefined &&
+    validWelcomeTitleCommand(title)
   );
 }
 
@@ -99,16 +112,17 @@ export function validateLifecycleTemplate(event: EventTemplate): void {
     !Array.isArray(event.tags) ||
     !(
       event.tags.length === (event.kind === 9002 ? 2 : 1) ||
-      (event.kind === 9002 && event.tags.length === 3)
+      (event.kind === 9002 &&
+        (event.tags.length === 3 || event.tags.length === 4))
     ) ||
     event.tags[0]?.length !== 2 ||
     event.tags[0]?.[0] !== "h"
   )
     throw new Error("Invalid channel lifecycle command");
   lifecycleChannelId(event.tags[0]?.[1] ?? "");
-  if (event.kind === 9002 && event.tags.length === 3) {
+  if (event.kind === 9002 && event.tags.length > 2) {
     if (!landingCommand(event.tags))
-      throw new Error("Only the welcome channel and message may be set here");
+      throw new Error("Only the welcome channel and its welcome may be set here");
     return;
   }
   if (

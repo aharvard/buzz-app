@@ -1,7 +1,6 @@
 import type { PluginModule } from "../../plugins/api";
 import { CommunityAdmin } from "./CommunityAdmin";
 import { canManageMembership } from "./membership";
-import { createWelcomeSupport } from "./welcome";
 import { WelcomeSettings } from "./WelcomeSettings";
 
 export const inject = ["relay", "settingsCards", "adminAccess"];
@@ -47,37 +46,16 @@ export const apply: PluginModule["apply"] = (ctx) => {
       />
     ),
   });
-  // Owners and admins choose the welcome channel on relays that support it.
-  const support = createWelcomeSupport(relay);
-  ctx.effect(() => () => support.dispose());
+  // Owners and admins set the welcome and starter channels. The card itself
+  // keeps the welcome form to relays that support it.
   ctx.settingsCards.register({
     id: "welcome",
     title: "Welcome",
     section: "administration",
     visibility: {
-      snapshot: () => {
-        const access = manageable();
-        if (access !== true) return access;
-        const state = support.snapshot();
-        if (state.status === "ready") return !!state.supported;
-        return state.status === "error" ? "error" : "pending";
-      },
-      subscribe(listener) {
-        const offMembership = membership.subscribe(listener);
-        const offSupport = support.subscribe(listener);
-        return () => {
-          offMembership();
-          offSupport();
-        };
-      },
-      ensure() {
-        const releaseMembership = membership.ensure();
-        const releaseSupport = support.ensure();
-        return () => {
-          releaseMembership();
-          releaseSupport();
-        };
-      },
+      snapshot: manageable,
+      subscribe: membership.subscribe,
+      ensure: membership.ensure,
     },
     component: ({ active, community }) => (
       <WelcomeSettings

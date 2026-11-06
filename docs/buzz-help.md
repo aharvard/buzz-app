@@ -260,10 +260,17 @@ revokes all of them, and a pairing unused for 30 days expires.
   The card isn't a message: it can't be replied to, deleted or dismissed. While
   a new member's channels arrive, Messages says it is opening them. If none
   arrive within a few seconds, **Try again** checks for them again. Owners and admins choose the channel and edit
-  the message, up to 1,000 characters of plain text, in **Settings → Community
-  admin → Welcome**. That card appears only when the relay supports a welcome
-  channel. People already in the community keep their channels when the welcome
-  channel changes.
+  the card's title and message in **Settings → Community admin → Welcome**. The
+  message is Markdown, up to 4,000 characters; identity links name people
+  without notifying them, and channel links can be pasted from a channel's
+  **Copy link**. People already in the community keep their channels when the
+  welcome channel changes.
+- **Starter channels**: in the same **Welcome** settings, owners and admins
+  choose which other open channels new members join, even on relays without a
+  welcome channel. A change applies to people who join afterwards, not to
+  current members; in an open community it also adds returning people who were
+  never in that channel. Archiving a starter channel or making it private
+  pauses it until it is public again.
 - **Finding channels**: search's **Channels** tab lists the community's open
   channels you can join, with their member counts; typing also matches channels
   you're in. Opening an unjoined channel shows a preview with **Join**. Private

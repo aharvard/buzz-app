@@ -1,5 +1,9 @@
-import { useId, useSyncExternalStore } from "react";
+import { useId, useSyncExternalStore, type ReactNode } from "react";
+import type { ConversationExtensions } from "../conversation/contracts";
+import { MessageMarkdown } from "../messages/MessageMarkdown";
+import { useReferenceDirectory } from "../messages/ReferenceText";
 import { splitPartition } from "../relay/partition";
+import type { RelaySession } from "../relay/session";
 import { communityPresentation } from "./community-icon";
 import type { CommunityReader } from "./service";
 import styles from "./WelcomeCard.module.css";
@@ -8,44 +12,105 @@ import styles from "./WelcomeCard.module.css";
 export const DEFAULT_WELCOME_MESSAGE =
   "This is a place to connect with the community and keep up with what’s happening. Explore the channels to find conversations that interest you.";
 
+/** Shown when the community has not set its own welcome title. */
+export function defaultWelcomeTitle(communityName?: string | undefined) {
+  return communityName ? `Welcome to ${communityName}` : "Welcome";
+}
+
 /** The welcome channel's introduction; a timeline start, never a message. */
 export function WelcomeCard({
-  communityName,
-  message,
+  title,
+  children,
   level = 2,
 }: {
-  communityName?: string | undefined;
-  /** Plain text; `undefined` shows the default. */
-  message?: string | undefined;
+  title: string;
+  /** The rendered message, usually a `WelcomeMessage`. */
+  children: ReactNode;
   level?: 2 | 3 | 4;
 }) {
-  const title = useId();
+  const id = useId();
   const Heading = `h${level}` as "h2" | "h3" | "h4";
   return (
-    <section aria-labelledby={title} className={styles.card}>
-      <Heading id={title} className={`${styles.title} text-label`}>
-        {communityName ? `Welcome to ${communityName}` : "Welcome"}
+    <section aria-labelledby={id} className={styles.card}>
+      <Heading id={id} className={`${styles.title} text-label`}>
+        {title}
       </Heading>
-      <p className={`${styles.body} text-message`}>
-        {message ?? DEFAULT_WELCOME_MESSAGE}
-      </p>
+      <div className={styles.body}>{children}</div>
     </section>
+  );
+}
+
+/**
+ * The welcome message: Markdown source rendered as a message body is, with
+ * its `buzz://` channel and message links and `nostr:npub` identity links.
+ * Identity links name people without notifying them. A non-interactive
+ * preview shows the same references without their actions.
+ */
+export function WelcomeMessage({
+  message,
+  session,
+  scope,
+  channelId,
+  extensions,
+  onOpenLink,
+  canOpenLink,
+  interactive = true,
+}: {
+  /** Markdown source; `undefined` shows the default. */
+  message?: string | undefined;
+  session: RelaySession;
+  scope: string;
+  /** Scopes identity names to this channel's members. */
+  channelId: string;
+  extensions?: ConversationExtensions | undefined;
+  onOpenLink(url: string): boolean;
+  canOpenLink?: ((target: string) => boolean) | undefined;
+  interactive?: boolean;
+}) {
+  const directory = useReferenceDirectory(session);
+  return (
+    <MessageMarkdown
+      row={{
+        id: "community-welcome",
+        authorId: "",
+        createdAt: 0,
+        channelId,
+        content: message ?? DEFAULT_WELCOME_MESSAGE,
+        mentions: [],
+        participants: [],
+        attachments: [],
+        reactions: [],
+        replyCount: 0,
+      }}
+      directory={directory}
+      session={session}
+      scope={scope}
+      extensions={extensions}
+      media={session.media}
+      onOpenLink={onOpenLink}
+      canOpenLink={canOpenLink}
+      interactive={interactive}
+    />
   );
 }
 
 const noCommunities = () => () => {};
 const noSnapshot = () => undefined;
 
-/** The welcome card titled with the name this viewer knows the community by. */
+/** The welcome card, titled by default with the name this viewer knows the
+ * community by. */
 export function CommunityWelcomeCard({
   communities,
   scope,
-  message,
+  title,
+  children,
 }: {
   communities?: CommunityReader | undefined;
   /** The relay session's partition. */
   scope: string;
-  message?: string | undefined;
+  /** Custom title; absent shows the default. */
+  title?: string | undefined;
+  children: ReactNode;
 }) {
   const snapshot = useSyncExternalStore(
     communities?.subscribe ?? noCommunities,
@@ -59,5 +124,9 @@ export function CommunityWelcomeCard({
     } catch {
       // An unscoped reader has no community presentation to show.
     }
-  return <WelcomeCard communityName={name} message={message} />;
+  return (
+    <WelcomeCard title={title ?? defaultWelcomeTitle(name)}>
+      {children}
+    </WelcomeCard>
+  );
 }

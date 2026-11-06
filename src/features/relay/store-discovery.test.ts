@@ -1123,14 +1123,15 @@ it("merges incremental metadata and periodically replaces the full directory", a
   delta.request.respond([
     open("renamed", "after", start / 1000 + 1),
     open("archived", "active", start / 1000 + 2, [["archived", "true"]]),
-    open("new", "new-channel", start / 1000 + 3),
+    // The relay joins new members to a channel with the bare tag.
+    open("new", "new-channel", start / 1000 + 3, [["auto_join"]]),
   ]);
   expect(await delta.search).toEqual({ channels: [], partial: false });
   expect(h.channels.openDirectory?.()).toEqual([
     { id: "renamed", name: "after" },
     { id: "archived", name: "active", archived: true },
     { id: "future", name: "future" },
-    { id: "new", name: "new-channel" },
+    { id: "new", name: "new-channel", autoJoin: true },
   ]);
   clock += 30_000;
   const empty = await read();
@@ -1146,7 +1147,7 @@ it("merges incremental metadata and periodically replaces the full directory", a
   clock = start + 5 * 60_000;
   const full = await read();
   expect(full.request.filters[0]?.since).toBeUndefined();
-  full.request.respond([open("new", "new-channel", start / 1000 + 3)]);
+  full.request.respond([open("new", "new-channel", start / 1000 + 4)]);
   await full.search;
   expect(h.channels.openDirectory?.()).toEqual([
     { id: "new", name: "new-channel" },
