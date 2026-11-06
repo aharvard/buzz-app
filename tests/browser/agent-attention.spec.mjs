@@ -231,3 +231,54 @@ test.describe("touch delete actions", () => {
     await expect(interest).toHaveCount(0);
   });
 });
+
+// Joined profile framing and responsive artwork geometry require browser layout.
+test("empty Attention retains its card and clustered prompts in the profile host", async ({
+  page,
+}, testInfo) => {
+  await page.goto("/tests/fixtures/agent-attention.html");
+  for (const name of ["Release discussion", "example/project#42"]) {
+    await page
+      .getByRole("button", { name: `Watch status for ${name}` })
+      .click();
+    await page
+      .getByRole("menuitem", { name: `Delete ${name}`, exact: true })
+      .click();
+    await expect(
+      page.getByRole("button", { name: `Watch status for ${name}` }),
+    ).toHaveCount(0);
+  }
+  const removeInterest = page.getByRole("button", {
+    name: /^Delete Interest /,
+  });
+  await expect(removeInterest).toHaveCount(2);
+  await removeInterest.first().focus();
+  await page.keyboard.press("Enter");
+  await expect(removeInterest).toHaveCount(1);
+  await removeInterest.first().focus();
+  await page.keyboard.press("Enter");
+  const empty = page.getByRole("region", {
+    name: "Start watching",
+    exact: true,
+  });
+  await expect(empty).toBeVisible();
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(empty.locator(".buzz-empty-state")).toHaveCSS(
+      "border-top-width",
+      "1px",
+    );
+    await expect(empty.locator(".buzz-empty-state")).not.toHaveCSS(
+      "border-radius",
+      "0px",
+    );
+    const pile = empty.getByRole("list", { name: "Things to ask Ada" });
+    const box = await pile.boundingBox();
+    expect(box.width).toBeLessThanOrEqual(448);
+    expect(await empty.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
+      true,
+    );
+    await expect(pile.getByRole("button")).toHaveCount(3);
+    await page.screenshot({ path: testInfo.outputPath(`empty-${width}.png`) });
+  }
+});

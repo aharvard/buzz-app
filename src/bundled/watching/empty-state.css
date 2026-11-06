@@ -1,18 +1,8 @@
 /* Three quiet message prompts, with stable artwork geometry. */
 .attention-empty-preview {
-  display: grid;
-  gap: var(--space-6);
-  max-width: 56.25rem;
-  padding: var(--space-6);
-}
-.attention-empty-copy {
-  display: grid;
-  gap: var(--space-2);
-  text-align: center;
-}
-.attention-empty-copy h3,
-.attention-empty-copy p {
-  margin: 0;
+  inline-size: 28rem;
+  max-inline-size: 100%;
+  min-inline-size: 0;
 }
 .attention-empty-pile {
   display: grid;
