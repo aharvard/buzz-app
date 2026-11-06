@@ -132,6 +132,7 @@ it("names each message's author beside their pubkey", () => {
   });
   expect(promptMessage(sections)).toEqual({
     author: undefined,
+    authorPubkey: alice,
     text: "@Agent look",
   });
 });
