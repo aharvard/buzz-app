@@ -372,7 +372,7 @@ pub(crate) async fn plugin_host_upload_bytes_once<R: tauri::Runtime>(
         // One FIFO queue and work permit for GET/save/upload; queue time is part
         // of this call's entry deadline. Do not clone/build multipart while waiting.
         let _place = crate::host_files::byte_admission(deadline).await?;
-        byte_origin(manager, &id, &revision, &url).await?;
+        upload_origin(&byte_grants(manager, &id, &revision).await?, &url)?;
         calls.consume(
             webview.label(),
             "upload-bytes",
@@ -488,17 +488,34 @@ enum ByteReach {
     PublicImage,
 }
 
+async fn byte_grants(
+    manager: tauri::State<'_, PluginManager>,
+    id: &str,
+    revision: &str,
+) -> Result<HostGrants, String> {
+    let (id, revision) = (id.to_owned(), revision.to_owned());
+    with_manager(manager, move |m| m.host_grants(&id, &revision))
+        .await
+        .map_err(|_| "Host byte request is unavailable".into())
+}
+
 async fn byte_origin(
     manager: tauri::State<'_, PluginManager>,
     id: &str,
     revision: &str,
     url: &reqwest::Url,
 ) -> Result<ByteReach, String> {
-    let (id, revision) = (id.to_owned(), revision.to_owned());
-    let grants = with_manager(manager, move |m| m.host_grants(&id, &revision))
-        .await
-        .map_err(|_| "Host byte request is unavailable")?;
+    let grants = byte_grants(manager, id, revision).await?;
     reach(&grants, url).ok_or_else(|| "Host request origin is not declared".into())
+}
+
+/// An upload sends the plugin's bytes and returns the whole reply, so it
+/// needs a declared origin: `host.publicImages` widens only image reads.
+fn upload_origin(grants: &HostGrants, url: &reqwest::Url) -> Result<(), String> {
+    match reach(grants, url) {
+        Some(ByteReach::Declared) => Ok(()),
+        _ => Err("Host request origin is not declared".into()),
+    }
 }
 
 fn reach(grants: &HostGrants, url: &reqwest::Url) -> Option<ByteReach> {
@@ -877,6 +894,28 @@ mod tests {
             reach(&grants, &url("https://cdn.example.org/a.png")),
             Some(ByteReach::PublicImage)
         );
+    }
+
+    #[test]
+    fn public_images_never_authorize_an_upload() {
+        let url = |raw| reqwest::Url::parse(raw).unwrap();
+        let images_only = HostGrants {
+            public_images: true,
+            ..HostGrants::default()
+        };
+        for target in [
+            "https://cdn.example.org/a.png",
+            "https://internal.example:8443/api",
+        ] {
+            assert!(upload_origin(&images_only, &url(target)).is_err());
+        }
+        let declared = HostGrants {
+            network_origins: vec!["https://api.example.com".into()],
+            public_images: true,
+            ..HostGrants::default()
+        };
+        assert!(upload_origin(&declared, &url("https://api.example.com/upload")).is_ok());
+        assert!(upload_origin(&declared, &url("https://cdn.example.org/upload")).is_err());
     }
 
     fn local_response(response: Vec<u8>) -> (reqwest::Url, std::thread::JoinHandle<()>) {

@@ -1676,9 +1676,10 @@ this is not an at-most-one GET promise or an application retry policy.
 
 Declare `host: { publicImages: true }` to let `requestBytes` also read images from
 any public HTTPS site, outside `networkOrigins`: for example a link preview's
-`og:image`, whose host can't be known ahead of time. A declared origin keeps its
-ordinary behavior. Any other URL must use port 443, and native code resolves its
-name and refuses it unless every address is public (not loopback, private,
+`og:image`, whose host can't be known ahead of time. It widens only
+`requestBytes`: `request`, `upload` and `uploadBytesOnce` still need a declared
+origin. A declared origin keeps its ordinary behavior. Any other URL must use
+port 443, and native code resolves its name and refuses it unless every address is public (not loopback, private,
 shared 100.64.0.0/10, link-local, multicast, documentation or reserved space,
 including IPv4 embedded in IPv6), then connects only to those addresses, with no
 proxy, no cookies and Buzz's User-Agent. A redirect returns its status and
