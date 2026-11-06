@@ -58,8 +58,33 @@ async function capture(surface, info, name) {
     await surface.screenshot({ path: info.outputPath(`${name}.png`) });
 }
 
-// These journeys preserve actual routing, signed discovery,
-// broker save/readback, focus and responsive overlays. Role matrices stay in Vitest.
+function accessControls(page) {
+  const dialog = page.getByRole("dialog", {
+    name: "Share access",
+    exact: true,
+  });
+  return {
+    dialog,
+    audience: dialog.getByRole("combobox", { name: "General access" }),
+    confirm: page.getByRole("alertdialog", {
+      name: "Change general access?",
+    }),
+    async openAccess() {
+      // Cached startup renders Share access too. Its local dialog is replaced
+      // with the live session; Chat actions exists only on the live header.
+      await expect(
+        page.getByRole("button", { name: "Chat actions", exact: true }),
+      ).toBeVisible();
+      await page
+        .getByRole("button", { name: /^Share access to /, exact: true })
+        .last()
+        .click();
+    },
+  };
+}
+
+// These journeys preserve actual routing, signed discovery, broker save/readback,
+// focus and responsive overlays. Role matrices stay in Vitest.
 test.describe("owner", () => {
   test.use({
     channelIds: [own],
@@ -74,25 +99,7 @@ test.describe("owner", () => {
   }, info) => {
     await openChat(page, app, own);
     const row = page.locator(`[data-solo-channel-id="${own}"]`);
-    const access = page
-      .getByRole("button", { name: "Share access", exact: true })
-      .last();
-    const dialog = page.getByRole("dialog", {
-      name: "Share access",
-      exact: true,
-    });
-    const audience = dialog.getByRole("combobox", { name: "General access" });
-    const openAccess = async () => {
-      // Cached startup renders Share access too. Its local dialog is replaced
-      // with the live session; Chat actions exists only on the live header.
-      await expect(
-        page.getByRole("button", { name: "Chat actions", exact: true }),
-      ).toBeVisible();
-      await access.click();
-    };
-    const confirm = page.getByRole("alertdialog", {
-      name: "Change general access?",
-    });
+    const { dialog, audience, openAccess, confirm } = accessControls(page);
     let saves = 0;
     for (const presentation of presentations) {
       const suffix = `${presentation.mode}_${presentation.width}`;
@@ -229,25 +236,7 @@ test.describe("owner", () => {
     app,
   }, info) => {
     await openChat(page, app, own);
-    const access = page
-      .getByRole("button", { name: "Share access", exact: true })
-      .last();
-    const dialog = page.getByRole("dialog", {
-      name: "Share access",
-      exact: true,
-    });
-    const audience = dialog.getByRole("combobox", { name: "General access" });
-    const openAccess = async () => {
-      // Cached startup renders Share access too. Its local dialog is replaced
-      // with the live session; Chat actions exists only on the live header.
-      await expect(
-        page.getByRole("button", { name: "Chat actions", exact: true }),
-      ).toBeVisible();
-      await access.click();
-    };
-    const confirm = page.getByRole("alertdialog", {
-      name: "Change general access?",
-    });
+    const { dialog, audience, openAccess, confirm } = accessControls(page);
     // The longer conditional descriptions need real modal geometry and focus
     // coverage. Guest/status matrices remain in the component/session tests.
     const guest = app.serveProfile(generateSecretKey(), {
@@ -418,7 +407,7 @@ test.describe("visitor", () => {
       );
       await capture(article, info, `SOLO_DROPDOWN_VISITOR_${suffix}`);
       await page
-        .getByRole("button", { name: /^Share access/ })
+        .getByRole("button", { name: /^Chat access for / })
         .last()
         .click();
       const dialog = page.getByRole("dialog", {
@@ -455,7 +444,7 @@ test.describe("visitor", () => {
       article.getByRole("button", { name: "Join", exact: true }),
     ).toHaveCount(0);
     await page
-      .getByRole("button", { name: /^Share access/ })
+      .getByRole("button", { name: /^Share access to / })
       .last()
       .click();
     const existingAccess = page.getByRole("dialog", {
@@ -535,10 +524,17 @@ test.describe("visitor", () => {
       );
     }
     await present(page, presentations[0]);
+    const actions = page.getByRole("button", {
+      name: "Chat actions",
+      exact: true,
+    });
     await page.reload();
     await expect(row).toBeVisible();
+    // Cached startup renders Share access too. Its local dialog is replaced
+    // with the live session; Chat actions exists only on the live header.
+    await expect(actions).toBeVisible();
     await page
-      .getByRole("button", { name: /^Share access/ })
+      .getByRole("button", { name: /^Chat access for / })
       .last()
       .click();
     const access = page.getByRole("dialog", {
@@ -555,10 +551,6 @@ test.describe("visitor", () => {
     await expect(article.locator("[data-message-id]").last()).toBeVisible();
     await expect(row).toBeVisible();
     await expect(page.locator('[contenteditable="true"]')).toHaveCount(0);
-    const actions = page.getByRole("button", {
-      name: "Chat actions",
-      exact: true,
-    });
     await actions.click();
     await expect(
       page.getByRole("menuitem", { name: "Archive chat", exact: true }),
