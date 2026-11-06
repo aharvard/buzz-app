@@ -10,6 +10,13 @@ test("The Attention tab fits both themes and sizes and manages existing watches 
   await page.goto("/tests/fixtures/agent-attention.html");
   const pane = page.getByRole("region", { name: "Attention", exact: true });
   await expect(pane).toBeVisible();
+  // The real profile host joins its panels; Interest cards retain their own border.
+  const interest = pane.getByRole("region", {
+    name: "Interest Release planning",
+    exact: true,
+  });
+  await expect(interest).toHaveCSS("border-top-width", "1px");
+  await expect(interest).not.toHaveCSS("border-radius", "0px");
   await page
     .getByRole("button", {
       name: "Details for Release discussion",

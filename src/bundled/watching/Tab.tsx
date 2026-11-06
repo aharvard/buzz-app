@@ -8,7 +8,7 @@ import {
   TrashIcon,
 } from "../../shared/design-system/icons";
 import { Button } from "../../shared/design-system/ui/Button";
-import { Panel } from "../../shared/design-system/ui/Panel";
+import { SettingsGroup } from "../../shared/design-system/ui/SettingsGroup";
 import { SwitchPreferenceRow } from "../../shared/design-system/ui/SwitchPreferenceRow";
 import { Switch as SharedSwitch } from "../../shared/design-system/ui/Switch";
 import type { Context } from "../../plugins/author";
@@ -161,8 +161,11 @@ export function createAttentionComponents({
       instructions.split("\n").find((line) => line.trim()) || "";
     const label = /^#+\s/.test(firstLine) ? heading(firstLine).text : title(id);
     return (
-      <Panel key={id} shape="card" aria-label={`Interest ${label}`}>
-        <div className="attention-interest">
+      <SettingsGroup layout="cards">
+        <section
+          className="attention-interest"
+          aria-label={`Interest ${label}`}
+        >
           <div className="attention-interest-head">
             <h4 className="text-label">{label}</h4>
             <DeleteInterest
@@ -205,8 +208,8 @@ export function createAttentionComponents({
               />
             ))}
           </ul>
-        </div>
-      </Panel>
+        </section>
+      </SettingsGroup>
     );
   }
   function AgentPanel({
