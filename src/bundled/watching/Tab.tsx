@@ -17,15 +17,12 @@ import type { RelaySession } from "../../features/relay/session";
 import { InstructionsMarkdown } from "./InstructionsMarkdown";
 import { title, heading, type Channel } from "./presentation";
 import { problem, useAction } from "./actions";
+import { AttentionEmptyState } from "./AttentionEmptyState";
+import { startAttentionChat } from "./start-attention-chat";
 import { createWatchComponents } from "./WatchRow";
 export { heading, describe } from "./presentation";
 import "./AttentionPage.css";
 
-const suggestions = [
-  "Watch this thread for new messages",
-  "Watch my PR and tell me when CI finishes or someone reviews it",
-  "Check this channel every morning at 9",
-];
 const button = { variant: "ghost" as const, size: "sm" as const };
 /** Uses the host’s controls and surface roles. */
 export function createAttentionComponents({
@@ -237,16 +234,20 @@ export function createAttentionComponents({
       !skipped.length;
     return (
       <div className="attention-agent">
-        <SwitchPreferenceRow
-          label="Run watches on this device"
-          description="Watches only run while Buzz is open on this device."
-          aria-label={`Run ${agent.name}’s watches on this device`}
-          checked={agent.attentionEnabled}
-          disabled={action.pending}
-          onCheckedChange={(attentionEnabled) =>
-            void action.run(() => agents.save(agent.key, { attentionEnabled }))
-          }
-        />
+        {!empty && (
+          <SwitchPreferenceRow
+            label="Run watches on this device"
+            description="Watches only run while Buzz is open on this device."
+            aria-label={`Run ${agent.name}’s watches on this device`}
+            checked={agent.attentionEnabled}
+            disabled={action.pending}
+            onCheckedChange={(attentionEnabled) =>
+              void action.run(() =>
+                agents.save(agent.key, { attentionEnabled }),
+              )
+            }
+          />
+        )}
         {problem(action.error)}
         {skipped.map((object) => (
           <section key={object.slug} className="attention-card">
@@ -311,17 +312,21 @@ export function createAttentionComponents({
           </section>
         )}
         {empty && (
-          <div className="attention-suggestions">
-            <p className="text-body-sm text-secondary">{`Nothing is being watched yet. Try asking ${agent.name}:`}</p>
-            <ul className="attention-list">
-              {suggestions.map((ask) => (
-                <li
-                  key={ask}
-                  className="attention-card text-body-sm"
-                >{`\u201c${ask}\u201d`}</li>
-              ))}
-            </ul>
-          </div>
+          <AttentionEmptyState
+            name={agent.name}
+            disabled={action.pending || !session || !scope}
+            onChoose={async (text) => {
+              if (!session || !scope)
+                throw new Error("Connect to this agent’s community first.");
+              await startAttentionChat({
+                agent,
+                session,
+                scope,
+                navigation,
+                text,
+              });
+            }}
+          />
         )}
       </div>
     );
@@ -369,11 +374,6 @@ export function createAttentionComponents({
         tabIndex={-1}
       >
         <div className="attention-content">
-          <p className="text-body-sm text-subtle">
-            {
-              "Ask your agent to follow a conversation, watch a pull request, or check something on a schedule. Each Interest holds the task’s instructions. Its watches define what wakes the agent to work on it."
-            }
-          </p>
           {agent &&
             here &&
             snapshot.classifier !== "available" &&

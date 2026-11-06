@@ -730,6 +730,7 @@ confirmation.
 - **Attention**, when available, lets agents use Interests, watches, and timers
   to follow work. Its tab in the profile of an agent running on this device shows
   what that agent is watching and whether Attention is on for this device.
+  With nothing watched yet, choose an example prompt to open an editable New chat draft addressed to the agent; nothing is sent until you send it. Existing unsent drafts are preserved.
   Each watch shows its source and Active or Paused state. Expand a
   watch, then expand “Activity” for a compact event timeline. Expand an event to read its full
   content, or expand “Watch details” for conditions and the execution destination. Select its status pill to

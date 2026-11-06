@@ -360,7 +360,7 @@ it.each(["source", "event", "timer"] as const)(
     fireEvent.click(removeInterest);
     await waitFor(() =>
       expect(
-        screen.getByText("Nothing is being watched yet. Try asking Ada:"),
+        screen.getByText("Give Ada something to keep an eye on."),
       ).toBeTruthy(),
     );
     expect(save).toHaveBeenLastCalledWith("membership-a", {
@@ -475,7 +475,7 @@ it("keeps subscription controls disabled and the tab open while saving, and pres
 });
 
 it("explains Attention to a new agent and switches it on this device", async () => {
-  const snapshot = {
+  let snapshot = {
     status: "ready",
     running: [
       {
@@ -495,31 +495,43 @@ it("explains Attention to a new agent and switches it on this device", async () 
     .mockRejectedValueOnce(new Error("Enable failed"))
     .mockResolvedValueOnce(undefined);
   const disconnected = { status: "disconnected", ...community };
+  let changed = () => {};
   const ctx = {
     react: React,
-    agents: { snapshot: () => snapshot, subscribe: () => () => {}, save },
+    agents: {
+      snapshot: () => snapshot,
+      subscribe: (listener: () => void) => {
+        changed = listener;
+        return () => {};
+      },
+      save,
+    },
     relay: { snapshot: () => disconnected, subscribe: () => () => {} },
   } as unknown as Context;
   render(
     React.createElement(createTab(ctx), { agent: { key: "membership-b" } }),
   );
-  expect(
-    screen.getByText(/Ask your agent to follow a conversation/),
-  ).toBeTruthy();
-  expect(
-    screen.getByText("Watches only run while Buzz is open on this device."),
-  ).toBeTruthy();
-  expect(
-    screen.getByText("Nothing is being watched yet. Try asking Bo:"),
-  ).toBeTruthy();
-  expect(
-    screen.getAllByRole("listitem").map((item) => item.textContent),
-  ).toEqual([
-    "\u201cWatch this thread for new messages\u201d",
-    "\u201cWatch my PR and tell me when CI finishes or someone reviews it\u201d",
-    "\u201cCheck this channel every morning at 9\u201d",
-  ]);
-  expect(screen.queryByRole("button")).toBeNull();
+  expect(screen.getByRole("region", { name: "Start watching" })).toBeTruthy();
+  expect(screen.getByText("Give Bo something to keep an eye on.")).toBeTruthy();
+  expect(screen.getByText(/Ask Bo to follow a conversation/)).toBeTruthy();
+  expect(screen.queryByRole("switch")).toBeNull();
+  expect(screen.getAllByRole("button")).toHaveLength(30);
+  act(() => {
+    snapshot = {
+      ...snapshot,
+      running: snapshot.running.map((agent) => ({
+        ...agent,
+        attention: {
+          "interest/task": {
+            slug: "interest/task",
+            modifiedAt: 1,
+            value: { type: "interest", instructions: "Follow this work" },
+          },
+        },
+      })),
+    };
+    changed();
+  });
   const toggle = screen.getByRole("switch", {
     name: "Run Bo’s watches on this device",
   });
