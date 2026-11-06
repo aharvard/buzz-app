@@ -313,8 +313,20 @@ type PluginInstaller = {
     path?: string; // relative folder inside the repository
     commit?: string; // 40- or 64-hex; install exactly this commit
   }): Promise<"installed" | "updated" | "cancelled" | "unavailable">;
+  getInstallationStatus(
+    id: string,
+  ): "installed" | "absent" | "unavailable";
+  subscribeInstallationStatus(
+    id: string,
+    listener: (status: "installed" | "absent" | "unavailable") => void,
+  ): () => void;
 };
 ```
+
+These status methods may be missing on an older host even when the optional
+service is available. Feature-check each method before calling it; see the
+[plugin authoring guide](plugin-authoring-guide.md#extension-points) for
+status semantics and subscription-lifetime guidance.
 
 `requestInstall` never installs silently. It opens Settings → Plugins with the Git
 source prefilled and read-only, and the user still chooses **Find**, reviews the
