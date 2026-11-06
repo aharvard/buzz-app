@@ -252,6 +252,7 @@ async function channelsPage({ root = true, cached = false } = {}) {
       ...(traversal && { traversal: true as const }),
       position: () => undefined,
       savePosition() {},
+      passThrough: () => () => {},
       forSession: () => navigation,
       resolve: () => true,
       complete: () => true,
