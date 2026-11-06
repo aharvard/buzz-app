@@ -51,7 +51,10 @@ import { ChannelJoinNotice } from "../../features/messages/ChannelJoinNotice";
 import { ChannelLifecycleActions } from "./ChannelLifecycleActions";
 import { lifecycleNoun } from "./ChannelLifecycleDialog";
 import type { PageNavigation } from "../../features/navigation/service";
-import type { Navigation } from "../../features/navigation/controller";
+import type {
+  Navigation,
+  NavigationOpenOptions,
+} from "../../features/navigation/controller";
 import { targetKey, type OpenTarget } from "../../features/navigation/targets";
 import {
   buzzLinkTarget,
@@ -418,19 +421,22 @@ function ChannelWorkspace({
     return () => clearPreparingDm?.();
   }, [composingMessage, clearPreparingDm]);
   const navigate = useCallback(
-    (id: string) => {
+    (id: string, options?: NavigationOpenOptions) => {
       setSelected(id);
       writeView(scope, "selected-channel", id);
       if (navigator && viewer) {
-        void navigator.open({
-          version: 1,
-          kind: "conversation",
-          channelId: id,
-          scope: {
-            viewer,
-            communityOrigin: scope.slice(0, -(viewer.length + 1)),
+        void navigator.open(
+          {
+            version: 1,
+            kind: "conversation",
+            channelId: id,
+            scope: {
+              viewer,
+              communityOrigin: scope.slice(0, -(viewer.length + 1)),
+            },
           },
-        });
+          options,
+        );
       }
     },
     [navigator, viewer, scope],
@@ -543,6 +549,28 @@ function ChannelWorkspace({
     !!draft ||
     (navigation?.target.kind === "page" &&
       navigation.target.route?.params === "empty");
+  const kept =
+    (!navigation && !cached && visiblePreview.current?.queries === queries
+      ? queries.channels.get?.(visiblePreview.current.channelId)
+      : undefined) ??
+    channels.find((channel) => channel.id === selected) ??
+    // A computed choice stays put while its channel is listed, so a channel
+    // flagged or added later never swaps the one being read; only a welcome
+    // channel can replace a provisional fallback (see `provisional`).
+    channels.find((channel) => channel.id === chosen.current);
+  // A new member lands in the community's welcome channel, else in its
+  // default channel when it has one.
+  const welcomeChannel = channels.find(
+    (channel) => channel.landing && channel.channelType === "stream",
+  );
+  // A channel whose metadata is still pending can be the welcome channel, so
+  // the starter and first-channel fallbacks wait for it rather than settle first.
+  const fallback =
+    kept || welcomeChannel || (metadataPending && list.status !== "error")
+      ? undefined
+      : (channels.find(
+          (channel) => channel.autoJoin && channel.channelType !== "solo",
+        ) ?? channels.find((item) => item.channelType !== "solo"));
   const requestedDestination = emptyDestination
     ? undefined
     : requestedChannel
@@ -552,25 +580,7 @@ function ChannelWorkspace({
         (previewAvailable
           ? queries.channels.get?.(requestedChannel)
           : undefined))
-      : ((!navigation && !cached && visiblePreview.current?.queries === queries
-          ? queries.channels.get?.(visiblePreview.current.channelId)
-          : undefined) ??
-        channels.find((channel) => channel.id === selected) ??
-        // A computed choice stays put while its channel is listed, so a channel
-        // flagged or added later never swaps the one being read.
-        channels.find((channel) => channel.id === chosen.current) ??
-        // A new member lands in the community's welcome channel, else in its
-        // default channel when it has one.
-        channels.find(
-          (channel) => channel.landing && channel.channelType === "stream",
-        ) ??
-        // A channel whose metadata is still pending can be the welcome
-        // channel, so the fallbacks wait for it rather than settle first.
-        (metadataPending && list.status !== "error"
-          ? undefined
-          : (channels.find(
-              (channel) => channel.autoJoin && channel.channelType !== "solo",
-            ) ?? channels.find((item) => item.channelType !== "solo"))));
+      : (kept ?? welcomeChannel ?? fallback);
   // Exact links and saved selections must respect the same Huddle-only entry point.
   const resolving =
     resolvingMembership ||
@@ -608,14 +618,59 @@ function ChannelWorkspace({
       list.status === "loading" ||
       metadataPending ||
       (emptyList && !noChannels));
+  // The relay's membership hints can confirm a new member's starter channel
+  // before their welcome channel, so a fallback chosen with no welcome channel
+  // listed is provisional. Until the reader acts in this workspace or moves to
+  // another visit, a welcome channel arriving within ENROLLMENT_WAIT_MS of the
+  // list first loading replaces it.
+  const listed = useRef<number>(undefined);
+  const provisional = useRef<{
+    channelId: string;
+    entryId: string | undefined;
+  }>(undefined);
   useLayoutEffect(() => {
+    if (list.status === "ready") listed.current ??= Date.now();
+    if (
+      provisional.current &&
+      provisional.current.entryId !== navigation?.entryId
+    )
+      provisional.current = undefined;
     // An open draft resolves nothing; keep the choice for when it closes.
-    if (requestedDestination) chosen.current = requestedDestination.id;
+    if (requestedDestination) {
+      if (!requestedChannel && requestedDestination === fallback)
+        provisional.current = {
+          channelId: requestedDestination.id,
+          entryId: navigation?.entryId,
+        };
+      chosen.current = requestedDestination.id;
+    }
     visiblePreview.current =
       current?.readOnly && !current.cached && !cached
         ? { channelId: current.id, queries }
         : undefined;
   });
+  const settleDefault = () => {
+    provisional.current = undefined;
+  };
+  const welcomeId = welcomeChannel?.id;
+  const currentId = current?.id;
+  const visitFocus = navigation?.focus;
+  useEffect(() => {
+    const choice = provisional.current;
+    if (!choice || !welcomeId) return;
+    provisional.current = undefined;
+    if (
+      currentId === choice.channelId &&
+      welcomeId !== choice.channelId &&
+      listed.current !== undefined &&
+      Date.now() - listed.current < ENROLLMENT_WAIT_MS
+    )
+      // The same opening, corrected: no return path to the fallback.
+      navigate(welcomeId, {
+        replace: true,
+        ...(visitFocus && { focus: visitFocus }),
+      });
+  }, [welcomeId, currentId, visitFocus, navigate]);
   // Sidebar routing can update the same mounted page. Keep its saved default
   // aligned with the resolved conversation, not only page-local clicks.
   useEffect(() => {
@@ -717,7 +772,6 @@ function ChannelWorkspace({
       navigation.resolve(target);
     }
   }, [cached, current, navigation]);
-  const currentId = current?.id;
   useEffect(() => {
     setMembersChannel((id) => (id === currentId ? id : undefined));
   }, [currentId]);
@@ -2197,6 +2251,9 @@ function ChannelWorkspace({
       ref={split.ref}
       style={split.style}
       className={`${styles.board} ${panelStyles.splitMotion}`}
+      // The reader acting here keeps a provisional default; see `provisional`.
+      onPointerDownCapture={settleDefault}
+      onKeyDownCapture={settleDefault}
     >
       {current && membersOpen && (
         <ChannelMembersDialog

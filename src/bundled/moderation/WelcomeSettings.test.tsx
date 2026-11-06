@@ -325,19 +325,24 @@ it("draws channel links in the preview as the welcome card does", async () => {
   expect(within(preview).queryByRole("link")).toBeNull();
 });
 
-/** Paste `text` as plain text at the start of an emptied message field. */
-function pasteIntoMessage(text: string) {
-  const input = messageField();
-  fireEvent.change(input, { target: { value: "" } });
+/** A plain-text clipboard holding `text`. */
+const plainClipboard = (text: string) => ({
+  clipboardData: {
+    items: [],
+    getData: (type: string) => (type === "text/plain" ? text : ""),
+  },
+});
+
+/** Paste `text` as plain text into a message field holding only `before` and
+ * `after`, with the caret between them. */
+function pasteIntoMessage(text: string, before = "", after = "") {
+  const input = messageField() as ComposerInputElement;
+  fireEvent.change(input, { target: { value: before + after } });
   act(() => {
     input.focus();
+    input.setSelectionRange(before.length, before.length);
     document.dispatchEvent(new Event("selectionchange"));
-    fireEvent.paste(input, {
-      clipboardData: {
-        items: [],
-        getData: (type: string) => (type === "text/plain" ? text : ""),
-      },
-    });
+    fireEvent.paste(input, plainClipboard(text));
   });
 }
 
@@ -375,6 +380,90 @@ it("labels a pasted nostr: npub with a short key when the name is unknown", asyn
     expect(setLanding).toHaveBeenCalledWith(
       lobby,
       welcome(`[@npub…${npub.slice(-3)}](nostr:${npub})`),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    ),
+  );
+});
+
+it("links an npub pasted into prose", async () => {
+  const alice = "b".repeat(64);
+  const npub = npubEncode(alice);
+  const { setLanding, user } = setup({ names: { [alice]: "Alice" } });
+  await waitFor(() => expect(messageField()).toHaveValue("Hi there"));
+  pasteIntoMessage(npub, "Ask ", " anything");
+  await user.click(await screen.findByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(setLanding).toHaveBeenCalledWith(
+      lobby,
+      welcome(`Ask [@Alice](nostr:${npub}) anything`),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    ),
+  );
+});
+
+it("keeps an npub pasted as a link destination being typed, so the link completes", async () => {
+  const alice = "b".repeat(64);
+  const npub = npubEncode(alice);
+  const { setLanding, user } = setup({ names: { [alice]: "Alice" } });
+  await waitFor(() => expect(messageField()).toHaveValue("Hi there"));
+  pasteIntoMessage(`nostr:${npub}`, "Ask [@Alice](");
+  await user.keyboard(")");
+  expect(messageField()).toHaveValue(`Ask [@Alice](nostr:${npub})`);
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(setLanding).toHaveBeenCalledWith(
+      lobby,
+      welcome(`Ask [@Alice](nostr:${npub})`),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    ),
+  );
+});
+
+it("keeps an npub pasted between backticks as literal code", async () => {
+  const alice = "b".repeat(64);
+  const npub = npubEncode(alice);
+  const { setLanding, user } = setup({ names: { [alice]: "Alice" } });
+  await waitFor(() => expect(messageField()).toHaveValue("Hi there"));
+  pasteIntoMessage(npub, "Key: `", "`");
+  expect(messageField()).toHaveValue(`Key: \`${npub}\``);
+  await user.click(await screen.findByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(setLanding).toHaveBeenCalledWith(
+      lobby,
+      welcome(`Key: \`${npub}\``),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    ),
+  );
+});
+
+it("keeps an npub pasted into toolbar code as pasted", async () => {
+  const alice = "b".repeat(64);
+  const npub = npubEncode(alice);
+  const { setLanding, user } = setup({ names: { [alice]: "Alice" } });
+  await waitFor(() => expect(messageField()).toHaveValue("Hi there"));
+  const input = messageField();
+  fireEvent.change(input, { target: { value: "" } });
+  act(() => {
+    input.focus();
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  // A pointer click leaves focus and the caret, with Code on, in the editor.
+  await user.click(screen.getByRole("button", { name: "Toggle formatting" }));
+  await user.click(screen.getByRole("button", { name: "Code" }));
+  expect(input).toHaveFocus();
+  act(() => {
+    fireEvent.paste(input, plainClipboard(npub));
+  });
+  expect(input.querySelector("code")).toHaveTextContent(npub);
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(setLanding).toHaveBeenCalledWith(
+      lobby,
+      welcome(`\`${npub}\``),
       expect.any(AbortSignal),
       expect.any(Function),
     ),

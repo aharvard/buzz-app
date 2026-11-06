@@ -389,9 +389,12 @@ export type EditableInputProps = Omit<
   /** Vet a pasted identity link as a notification recipient: the recipient under
    * its current name, or null to keep the display-only chip. */
   acceptRecipient?(pubkey: string): MentionRecipient | null;
-  /** The source to insert for pasted text. Raw pastes and code blocks keep
-   * the text as copied. */
-  pastedText?(text: string): string;
+  /** The source to insert for pasted text that replaces `start`–`end` of the
+   * draft text `source`. Raw pastes, code and links keep the text as copied. */
+  pastedText?(
+    text: string,
+    at: { source: string; start: number; end: number },
+  ): string;
 };
 
 /** ProseMirror owns native editing, composition, selection and a single history.
@@ -2180,8 +2183,22 @@ export function EditableInput({
                   externalLinkMarkdown(html, hasPlain ? plain : undefined))) ||
               plain ||
               "";
-            if (!code && current.current.pastedText)
-              text = current.current.pastedText(text);
+            const marks =
+              editor.state.storedMarks ?? editor.state.selection.$from.marks();
+            if (
+              !code &&
+              current.current.pastedText &&
+              !marks.some(
+                ({ type }) =>
+                  type === composerSchema.marks.code ||
+                  type === composerSchema.marks.link,
+              )
+            )
+              text = current.current.pastedText(text, {
+                source: source.draft.text,
+                start,
+                end,
+              });
             if (!text) return true;
             // A bare URL pasted over selected text links the selection, as other
             // editors do. editLink() owns the guards (code, resources, unsafe

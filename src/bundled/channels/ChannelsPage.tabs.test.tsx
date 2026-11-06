@@ -658,6 +658,77 @@ it("selects a default channel the relay adds after the page opened", async () =>
   await screen.findByRole("textbox", { name: "Message #Beta" });
 });
 
+/** A new member's empty first list, then a membership hint confirming their
+ * starter channel on its own read, as the relay's hints can arrive. */
+async function starterConfirmedFirst() {
+  const viewer = keypair(),
+    authority = keypair();
+  const events: RelayEvent[] = [];
+  const { owner } = workspace(events, viewer, authority);
+  await vi.waitFor(() =>
+    expect(owner.session.channels.list().status).toBe("ready"),
+  );
+  events.push(
+    roster(authority, "alpha", [viewer.pubkey]),
+    metadata(authority, "alpha", "Alpha", undefined, [
+      ["t", "stream"],
+      ["auto_join"],
+    ]),
+  );
+  await act(() => owner.session.channels.resolve?.(["alpha"]));
+  const alpha = await screen.findByRole("textbox", { name: "Message #Alpha" });
+  /** The welcome channel's hint, confirmed on a later read. */
+  const confirmWelcome = async () => {
+    events.push(
+      roster(authority, "beta", [viewer.pubkey]),
+      metadata(authority, "beta", "Beta", undefined, [
+        ["t", "stream"],
+        ["landing"],
+      ]),
+    );
+    await act(() => owner.session.channels.resolve?.(["beta"]));
+    await vi.waitFor(() =>
+      expect(
+        owner.session.channels.list().channels.find(({ id }) => id === "beta")
+          ?.landing,
+      ).toBe(true),
+    );
+  };
+  return { alpha, confirmWelcome };
+}
+
+it("opens a welcome channel confirmed after the starter channel it opened first", async () => {
+  const { confirmWelcome } = await starterConfirmedFirst();
+  await confirmWelcome();
+  await screen.findByRole("textbox", { name: "Message #Beta" });
+  expect(screen.getByRole("region", { name: "Welcome" })).toBeVisible();
+  expect(screen.queryByRole("textbox", { name: "Message #Alpha" })).toBeNull();
+});
+
+it("keeps the starter channel once the reader clicks in it, though the welcome channel follows", async () => {
+  const user = userEvent.setup();
+  const { alpha, confirmWelcome } = await starterConfirmedFirst();
+  await user.click(alpha);
+  await confirmWelcome();
+  expect(screen.getByRole("textbox", { name: "Message #Alpha" })).toBeVisible();
+  expect(screen.queryByRole("textbox", { name: "Message #Beta" })).toBeNull();
+});
+
+it("keeps the starter channel when the welcome channel follows after the opening window", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const { confirmWelcome } = await starterConfirmedFirst();
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    await confirmWelcome();
+    expect(
+      screen.getByRole("textbox", { name: "Message #Alpha" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: "Message #Beta" })).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("keeps the channel being read when a default channel arrives later", async () => {
   const viewer = keypair(),
     authority = keypair();

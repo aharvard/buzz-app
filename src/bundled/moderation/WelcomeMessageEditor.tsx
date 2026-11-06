@@ -80,16 +80,44 @@ function linkRanges(text: string, rich: readonly SourceRange[]) {
   return ranges.sort((a, b) => a.start - b.start);
 }
 
+/** Where a paste lands: over `start`–`end` of the draft text `source`. */
+type PasteAt = SourceRange & { source: string };
+
+/** Whether `text`, pasted as is, lands inside Markdown code, a link, or a link
+ * destination still being typed. */
+function pastedIntoMarkup(text: string, { source, start, end }: PasteAt) {
+  const before = source.slice(0, start);
+  // `[label](` typed so far, perhaps with part of the destination.
+  if (/\]\(<?[^\s()<>]*$/.test(before)) return true;
+  const after = before + text + source.slice(end);
+  const pasted = { start, end: start + text.length };
+  const spans = [
+    ...markdownRanges(after).literal,
+    ...scanMarkdown(after).links.map(({ position }) => ({
+      start: position?.start.offset ?? 0,
+      end: position?.end.offset ?? 0,
+    })),
+  ];
+  return spans.some(
+    (span) => pasted.start > span.start && pasted.end < span.end,
+  );
+}
+
 /**
  * A pasted npub, bare as Copy npub writes it or as a `nostr:` URI, becomes an
  * identity link labelled with the person's name when it is known, so it shows
- * as a chip. Like every identity link here, it notifies no one.
+ * as a chip. Like every identity link here, it notifies no one. Pasted into
+ * Markdown code or a link, it stays as pasted.
  */
-function identityPaste(text: string, names: RelaySession["names"]) {
+function identityPaste(
+  text: string,
+  at: PasteAt,
+  names: RelaySession["names"],
+) {
   const npub = text.trim().replace(/^nostr:/, "");
   const target = `nostr:${npub}`;
   const pubkey = profileKey(target);
-  if (!pubkey) return text;
+  if (!pubkey || pastedIntoMarkup(text, at)) return text;
   const name = names?.resolve(pubkey) ?? formatPublicKey(pubkey) ?? npub;
   return profileMentionLink(`@${name}`, target);
 }
@@ -213,7 +241,7 @@ export function WelcomeMessageEditor({
               onFormatsChange={setFormats}
               onEditLink={setLinkEdit}
               onPasteTooLong={() => setPasteTooLong(true)}
-              pastedText={(text) => identityPaste(text, session.names)}
+              pastedText={(text, at) => identityPaste(text, at, session.names)}
             />
             <ComposerFormattingTools
               disabled={disabled}

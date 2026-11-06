@@ -1299,7 +1299,12 @@ channel for new members), then the first non-Solo channel; an explicit empty
 route bypasses all three. The welcome channel is the stream channel whose
 relay-signed `39000` carries `landing`. Until every listed channel's metadata
 has arrived, any of them could be the welcome channel, so the starter and
-first-channel fallbacks wait. The welcome channel's timeline starts with a
+first-channel fallbacks wait. The relay's membership hints can still add a new
+member to their starter channel before their welcome channel, so a fallback
+opened while no welcome channel is listed is provisional: a welcome channel that
+arrives within ten seconds of the channel list first loading replaces it, unless
+the viewer has clicked or typed in Messages or opened anything else meanwhile.
+The welcome channel's timeline starts with a
 welcome card for every viewer, even with no messages: the community name and its
 custom message, or the default one. The card is not a message, so it has no
 unread state, actions or dismissal. While the channel list or its metadata is
