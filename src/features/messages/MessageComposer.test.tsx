@@ -6731,6 +6731,29 @@ it("prefixes thread replies with the selected media time and clears it after sen
   expect(h.input()).toHaveValue("");
 });
 
+it("binds a timed thread reply to its selected media attachment", async () => {
+  const mediaTargetUrl = "https://fixture.test/second.mp4";
+  const h = mount({
+    threadRootId: "root",
+    replyParentId: "parent",
+    mediaTimeSeconds: 21,
+    mediaTargetUrl,
+  });
+  await h.user.type(h.input(), "love this cut");
+  await h.user.click(screen.getByRole("button", { name: "Send message" }));
+  expect(h.messages.reply).toHaveBeenCalledExactlyOnceWith(
+    "channel",
+    "root",
+    "⏱ 0:21 — love this cut",
+    [],
+    [],
+    "parent",
+    [],
+    {},
+    mediaTargetUrl,
+  );
+});
+
 it("lets the visible media time indicator dismiss without sending", async () => {
   const clearMediaTime = vi.fn();
   const h = mount({
