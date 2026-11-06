@@ -32,6 +32,7 @@ import type {
   ContributionReader,
   PageTabsProps,
 } from "./contracts";
+import { PluginMarkdown, type MarkdownProps } from "../messages/PluginMarkdown";
 import type { RelaySession } from "../relay/session";
 import {
   ChannelMembersDialog,
@@ -89,6 +90,8 @@ export type Conversation = {
     MembersDialog: ComponentType<ChannelMembersDialogProps>;
     /** Signed General access editor with optional resource wording and policy. */
     GeneralAccess: ComponentType<ChannelGeneralAccessProps>;
+    /** Bounded document Markdown with host-owned link and image trust rules. */
+    Markdown: (props: MarkdownProps) => ReactNode;
     Thread: (props: EmbeddedThreadProps) => ReactNode;
     /** One channel's message management, edit target and overlays for a page's
      * own `Message` rows and `Composer`, without visiting the channel. */
@@ -241,6 +244,12 @@ export class ConversationService extends Service implements Conversation {
     this.ui = {
       MembersDialog: ChannelMembersDialog,
       GeneralAccess: ChannelGeneralAccess,
+      Markdown: (props: MarkdownProps) => (
+        <PluginMarkdown
+          {...props}
+          navigation={this.ctx.reflect.get("navigation")}
+        />
+      ),
       Thread: (props: EmbeddedThreadProps) => (
         <EmbeddedThread {...props} host={this.ctx} extensions={this} />
       ),
