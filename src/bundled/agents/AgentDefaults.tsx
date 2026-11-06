@@ -134,9 +134,16 @@ function ProviderDefaults({
       <PreferenceRow
         title={type.title}
         icon={Icon && <Icon size={20} />}
-        trailing={
-          (checking ? settledReadiness : state.readiness) === "ready" &&
-          DefaultControl ? (
+        subtitle={
+          state.readiness === "attention"
+            ? state.attentionDescription
+            : undefined
+        }
+        trailing={(description) => {
+          if (state.readiness === "attention" && state.attentionLabel === null)
+            return null;
+          return (checking ? settledReadiness : state.readiness) === "ready" &&
+            DefaultControl ? (
             <div
               ref={(node) => {
                 if (node) trigger.current = node.querySelector("button");
@@ -155,6 +162,7 @@ function ProviderDefaults({
               ref={trigger}
               size="sm"
               aria-label={`${label}, ${state.readiness}`}
+              aria-describedby={description["aria-describedby"]}
               aria-busy={checking || undefined}
               disabled={checking}
               onClick={select}
@@ -172,8 +180,8 @@ function ProviderDefaults({
                   ? label
                   : "Edit configuration"}
             </Button>
-          )
-        }
+          );
+        }}
       />
       {open && (
         <ProviderDialog

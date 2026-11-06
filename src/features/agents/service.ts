@@ -716,8 +716,10 @@ export type Models = Readonly<{
 }>;
 export type AgentProviderSnapshot = Readonly<{
   readiness: "checking" | "ready" | "attention";
-  /** Action-oriented menu copy for direct recovery or recovery guidance. */
-  attentionLabel?: string;
+  /** Action copy; null keeps Harness defaults status-only, undefined uses setup copy. */
+  attentionLabel?: string | null;
+  /** Supporting status text, separate from the attention action. */
+  attentionDescription?: string;
   /** Installation and sign-in work must be cancelled before its dialog closes. */
   blocking?: boolean;
 }>;

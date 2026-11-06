@@ -165,3 +165,20 @@ it("lets Back hide a routed provider's blocking work and Forward restore it", as
     expect(check).toHaveBeenCalledTimes(checks);
   });
 });
+
+it("keeps status-only attention noninteractive and restores the default setup action", async () => {
+  const { agents, update } = fixture({
+    readiness: "attention",
+    attentionLabel: null,
+    attentionDescription: "Unavailable for this account",
+  });
+  render(<AgentDefaults agents={agents} />);
+  expect(screen.getByText("Unavailable for this account")).toBeVisible();
+  expect(screen.queryByRole("button")).toBeNull();
+  update({ readiness: "attention" });
+  expect(screen.queryByText("Unavailable for this account")).toBeNull();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Set up Echo, attention" }),
+  );
+  expect(await screen.findByRole("dialog", { name: "Echo" })).toBeVisible();
+});

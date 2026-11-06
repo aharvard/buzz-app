@@ -618,6 +618,8 @@ available rather than silently discarding it.
 - **Settings → Agent setup → Harness defaults** is where supported agent types
   offer installation, sign-in, and default-model controls. Available controls
   depend on the type. Do not assume a provider is configured or signed in.
+  Builderlab shows **Unavailable for this account** when signed in without
+  remote-agent access. Manage its account in Builderlab Settings.
   On macOS, Claude security reviews need their own sign-in: run
   `claude setup-token` in Terminal and paste its token under **Sign in for
   reviews** in Claude's **Edit configuration**. Until it is saved, Claude

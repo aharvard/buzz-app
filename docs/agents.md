@@ -536,6 +536,9 @@ Agents host owns the rows, modal framing, focus restoration and contribution
 error boundary. The plugin owns connection actions and optional defaults inside
 the dialog; blocking install or sign-in work must expose cancellation before the
 dialog can close. Disabled or unloaded types remain in Settings → Plugins → Manage plugins.
+Providers can supply `attentionDescription` as supporting status text in Harness
+defaults, separate from the action named by `attentionLabel`. A null
+`attentionLabel` leaves only the status; omitting it keeps the default setup action.
 
 Goose's Settings → Harness defaults contribution reads and writes Goose's own
 configuration through `GooseSetup`. Provider keys stay in Goose's secret store;
