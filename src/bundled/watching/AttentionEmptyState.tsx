@@ -1,4 +1,5 @@
-import { useReducedMotion } from "motion/react";
+import { useRef } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { EmptyState } from "../../shared/design-system/ui/EmptyState";
 import "./empty-state.css";
 
@@ -11,8 +12,9 @@ const tilts = [-4, 3, -2];
 
 export function AttentionEmptyState({ name }: { name: string }) {
   const reduced = useReducedMotion();
+  const container = useRef<HTMLElement>(null);
   return (
-    <section aria-label="Start watching">
+    <section ref={container} aria-label="Start watching">
       <EmptyState
         icon={null}
         title={`Give ${name} something to keep an eye on.`}
@@ -24,14 +26,23 @@ export function AttentionEmptyState({ name }: { name: string }) {
               aria-label={`Things to ask ${name}`}
             >
               {prompts.map((text, index) => (
-                <li
+                <motion.li
                   key={text}
                   className="attention-empty-piece"
-                  style={{
-                    transform: `rotate(${reduced ? 0 : tilts[index]}deg)`,
-                  }}
+                  drag
+                  dragConstraints={container}
+                  dragMomentum={!reduced}
+                  dragElastic={reduced ? 0 : 0.15}
+                  dragTransition={{ bounceStiffness: 100, bounceDamping: 10 }}
+                  whileDrag={{ zIndex: 2 }}
                 >
-                  <div className="attention-empty-theme" data-accent="citrus">
+                  <div
+                    className="attention-empty-theme"
+                    data-accent="citrus"
+                    style={{
+                      transform: `rotate(${reduced ? 0 : tilts[index]}deg)`,
+                    }}
+                  >
                     <span
                       className="attention-empty-bubble text-body-sm"
                       data-own=""
@@ -39,7 +50,7 @@ export function AttentionEmptyState({ name }: { name: string }) {
                       {text}
                     </span>
                   </div>
-                </li>
+                </motion.li>
               ))}
             </ul>
           </div>

@@ -16,6 +16,8 @@
   width: max-content;
   max-width: 94%;
   cursor: default;
+  touch-action: none;
+  user-select: none;
 }
 .attention-empty-piece + .attention-empty-piece {
   margin-block-start: calc(-1 * var(--space-1));
