@@ -35,6 +35,10 @@ import type {
 import { PluginMarkdown, type MarkdownProps } from "../messages/PluginMarkdown";
 import type { RelaySession } from "../relay/session";
 import {
+  DocumentEditor,
+  type DocumentEditorProps,
+} from "../messages/DocumentEditor";
+import {
   ChannelMembersDialog,
   type ChannelMembersDialogProps,
 } from "../../bundled/channels/ChannelMembersDialog";
@@ -86,6 +90,8 @@ export type Conversation = {
   actions: ContributionReader<MessageAction>;
   registerMessageAction(action: MessageAction): void;
   ui: {
+    /** Controlled document editing with the host engine, formatting and link policy. */
+    DocumentEditor: ComponentType<DocumentEditorProps>;
     /** Host member picker, with optional plugin-owned actions, settings and link. */
     MembersDialog: ComponentType<ChannelMembersDialogProps>;
     /** Signed General access editor with optional resource wording and policy. */
@@ -242,6 +248,7 @@ export class ConversationService extends Service implements Conversation {
       return Provided ? <Provided {...props} /> : null;
     };
     this.ui = {
+      DocumentEditor,
       MembersDialog: ChannelMembersDialog,
       GeneralAccess: ChannelGeneralAccess,
       Markdown: (props: MarkdownProps) => (
