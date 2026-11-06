@@ -597,7 +597,8 @@ function ChannelWorkspace({
   const listed = useRef<number>(undefined);
   // With nothing saved or requested, the relay's NIP-11 document names its
   // welcome channel before the list can: a new member's list may not have it
-  // yet. A saved selection the list has, metadata pending or not, needs no read.
+  // yet. A saved selection whose metadata is still arriving needs no read; one
+  // the list shows is `kept`, and an archived one is no longer being read.
   const community = communityFromScope(scope);
   const needsLanding =
     !!landing &&
@@ -608,7 +609,9 @@ function ChannelWorkspace({
     !kept &&
     (!selected ||
       (list.status === "ready" &&
-        !list.channels.some((channel) => channel.id === selected)));
+        !list.channels.some(
+          (channel) => channel.id === selected && channel.metadataPending,
+        )));
   const [landingRead, setLandingRead] = useState<Landing | "failed">();
   useEffect(() => {
     if (!needsLanding || landingRead || !landing || !community) return;

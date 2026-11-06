@@ -857,6 +857,21 @@ it("announces starter edits, and rests focus in the pane when Cancel or Save tak
   expect(
     screen.getByText("#Random will be added when you save"),
   ).toHaveAttribute("role", "status");
+  // Back to the published flags: each is an undo, not the reverse change.
+  await user.click(remove("Random"));
+  expect(screen.getByText("#Random won’t be added")).toHaveAttribute(
+    "role",
+    "status",
+  );
+  await user.type(addField(), "town");
+  await user.click(await screen.findByRole("option", { name: "Town square" }));
+  expect(
+    screen.getByText("#Town square stays a starter channel"),
+  ).toHaveAttribute("role", "status");
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  await user.click(remove("Town square"));
+  await user.type(addField(), "ran");
+  await user.click(await screen.findByRole("option", { name: "Random" }));
   await user.click(screen.getByRole("button", { name: "Cancel" }));
   expect(screen.getByText("Starter changes discarded")).toHaveAttribute(
     "role",
@@ -867,8 +882,35 @@ it("announces starter edits, and rests focus in the pane when Cancel or Save tak
   await user.click(remove("Town square"));
   await user.click(screen.getByRole("button", { name: "Save" }));
   expect(await screen.findByText("Welcome saved")).toBeInTheDocument();
+  // Save speaks for itself; the edit's announcement is withdrawn.
+  expect(screen.queryByText(/when you save/)).toBeNull();
   expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   expect(channel()).toHaveFocus();
+});
+
+it("keeps the starter list, its typed search and focus when a re-read finds the relay no longer supports welcome channels", async () => {
+  const fixture = setup();
+  const { user } = fixture;
+  await waitFor(() => expect(channel()).toHaveValue("Lobby"));
+  await user.click(remove("Town square"));
+  await unconfirmedSave(fixture);
+  await user.type(addField(), "ran");
+  vi.mocked(communityRequest).mockResolvedValueOnce({
+    policy: null,
+    landingChannels: false,
+  });
+  await user.click(screen.getByRole("button", { name: "Check again" }));
+  expect(
+    await screen.findByText(
+      "This community’s relay doesn’t support a welcome channel.",
+    ),
+  ).toBeVisible();
+  // The same list, not a new one: the search and the pending removal stay.
+  expect(addField()).toHaveValue("ran");
+  expect(addField()).toHaveFocus();
+  expect(removable("Town square")).toBeNull();
+  expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
 });
 
 it("shows Save only for a change, and Cancel returns to the published state", async () => {

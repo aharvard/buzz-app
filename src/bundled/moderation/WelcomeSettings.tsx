@@ -39,6 +39,7 @@ import {
 import type { RelayData } from "../../features/relay/service";
 import type { RelaySession } from "../../features/relay/session";
 import { matchName } from "../../features/search/match";
+import { flushSync } from "react-dom";
 import { Button } from "../../shared/design-system/ui/Button";
 import { ChoiceRow } from "../../shared/design-system/ui/ChoiceRow";
 import { Combobox } from "../../shared/design-system/ui/Combobox";
@@ -308,6 +309,11 @@ function WelcomeEditor({
   const [saved, setSaved] = useState(false);
   // Starter edits change the list without moving focus; this tells of them.
   const [announcement, setAnnouncement] = useState("");
+  // Cleared first, so the same words said twice are heard twice.
+  const announce = (text: string) => {
+    flushSync(() => setAnnouncement(""));
+    setAnnouncement(text);
+  };
   // The check compares the relay's answer with the draft as it stands then.
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -468,15 +474,21 @@ function WelcomeEditor({
     setError("");
   };
   const editStarter = (channel: Option, enabled: boolean) => {
+    // Back to the published flag: the drafted change is undone, not reversed.
+    const undo = enabled === channel.autoJoin;
     setStarterDraft((current) =>
-      enabled === channel.autoJoin
+      undo
         ? without(current, channel.id)
         : new Map(current).set(channel.id, enabled),
     );
     setStarterErrors((current) => without(current, channel.id));
     if (enabled || addError?.id === channel.id) setAddError(undefined);
-    setAnnouncement(
-      `#${channel.name} will be ${enabled ? "added" : "removed"} when you save`,
+    announce(
+      undo
+        ? enabled
+          ? `#${channel.name} stays a starter channel`
+          : `#${channel.name} won’t be added`
+        : `#${channel.name} will be ${enabled ? "added" : "removed"} when you save`,
     );
     setSaved(false);
     setError("");
@@ -509,6 +521,7 @@ function WelcomeEditor({
     setError("");
     setStarterErrors(new Map());
     setAddError(undefined);
+    setAnnouncement("");
     void (async () => {
       let step: StarterStep | undefined;
       try {
@@ -630,7 +643,7 @@ function WelcomeEditor({
           setError("");
           setStarterErrors(new Map());
           setAddError(undefined);
-          if (steps.length) setAnnouncement("Starter changes discarded");
+          if (steps.length) announce("Starter changes discarded");
         }}
       >
         Cancel
@@ -727,20 +740,15 @@ function WelcomeEditor({
         ) : undefined
       }
     >
-      {!supported ? (
-        <div className={styles.editor}>
-          {starters}
-          {status}
-          {footer}
-          {toast}
-        </div>
-      ) : (
-        <div
-          className={styles.editor}
-          data-placeholder={!published || undefined}
-          inert={!published}
-          aria-hidden={!published || undefined}
-        >
+      {/* One container either way, so the starter list, its live region and
+          their focus survive the relay's support changing on a re-read. */}
+      <div
+        className={styles.editor}
+        data-placeholder={(supported && !published) || undefined}
+        inert={supported && !published}
+        aria-hidden={(supported && !published) || undefined}
+      >
+        {supported && (
           <SettingsGroup layout="form">
             <form
               id={formId}
@@ -862,12 +870,12 @@ function WelcomeEditor({
               )}
             </form>
           </SettingsGroup>
-          {starters}
-          {status}
-          {footer}
-          {toast}
-        </div>
-      )}
+        )}
+        {starters}
+        {status}
+        {footer}
+        {toast}
+      </div>
     </LoadingRegion>
   );
 }

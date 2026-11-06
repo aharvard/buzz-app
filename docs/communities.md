@@ -193,8 +193,8 @@ and the draft is kept. A step the relay has not shown yet keeps the draft with
 Save disabled until **Check again** reads the relay's state for that step. If
 that read finds the relay no longer supports welcome channels, the welcome draft
 and its notice end with it, and the starter list stays. **Add a channel**,
-**Remove** and **Cancel** announce the pending or discarded change for screen
-readers, and focus on a Save or Cancel that leaves rests on the welcome channel
+**Remove** and **Cancel** announce the pending, undone or discarded change for
+screen readers, and focus on a Save or Cancel that leaves rests on the welcome channel
 field, or on the search where there is no welcome form. Archive,
 Delete, Make private and expiry are not disabled for the welcome channel yet; the
 relay refuses them, and that refusal is shown like any other lifecycle error.

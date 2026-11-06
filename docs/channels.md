@@ -1309,7 +1309,8 @@ person joined themselves is listed, the relay is not adding them to the welcome
 channel, so the fallback opens at once, as for a member from before it was
 designated or one who left it. The channel opened when the wait ends is saved
 as the selection, so the next opening does not wait again. A saved selection
-the list has, even with its metadata still arriving, needs no NIP-11 read. The relay's membership hints can still add a new
+whose metadata is still arriving needs no NIP-11 read; an archived one no
+longer opens, so it does not count. The relay's membership hints can still add a new
 member to their starter channel before their welcome channel, so a fallback
 opened while no welcome channel is listed is provisional: a welcome channel that
 arrives within ten seconds of the channel list first loading replaces it, unless

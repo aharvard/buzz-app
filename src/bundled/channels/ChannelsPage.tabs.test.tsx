@@ -789,6 +789,42 @@ it("skips the NIP-11 read for a saved selection whose metadata is still arriving
   expect(landing).not.toHaveBeenCalled();
 });
 
+it("reads NIP-11 and holds for a newcomer's list whose saved selection is archived", async () => {
+  const viewer = keypair(),
+    authority = keypair(),
+    other = keypair();
+  const landing = vi.fn<LandingReader>(async () => ({
+    landingChannels: true,
+    landingChannel: "beta",
+  }));
+  const scope = `https://relay.test:${viewer.pubkey}`;
+  // An archived selection is listed, but not shown or read; the rest of the
+  // list is a DM, as a new member's can be.
+  writeView(scope, "selected-channel", "old");
+  const { owner } = workspace(
+    [
+      roster(authority, "old", [viewer.pubkey]),
+      metadata(authority, "old", "Old", undefined, [
+        ["t", "stream"],
+        ["archived", "true"],
+      ]),
+      roster(authority, "pat", [viewer.pubkey, other.pubkey]),
+      metadata(authority, "pat", "Pat", undefined, [["t", "dm"]]),
+    ],
+    viewer,
+    authority,
+    undefined,
+    landing,
+  );
+  await vi.waitFor(() =>
+    expect(owner.session.channels.list().status).toBe("ready"),
+  );
+  await vi.waitFor(() => expect(landing).toHaveBeenCalledOnce());
+  await act(async () => {});
+  expect(screen.getByText("Opening your channels…")).toBeVisible();
+  expect(screen.queryByRole("textbox")).toBeNull();
+});
+
 it("opens and keeps the DM once the welcome channel the relay names stays unlisted", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {
