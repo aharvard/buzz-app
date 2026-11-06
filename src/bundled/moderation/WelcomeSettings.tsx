@@ -1,23 +1,26 @@
-import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  type RefObject,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { ComposerInputElement } from "../../features/messages/composer-dom";
 import {
   communityRequest,
   type CommunityInfo,
 } from "../../features/communities/api";
+import type { CommunityReader } from "../../features/communities/service";
 import {
   DEFAULT_WELCOME_MESSAGE,
-  defaultWelcomeTitle,
-  WelcomeCard,
-  WelcomeMessage,
+  useDefaultWelcomeTitle,
 } from "../../features/communities/WelcomeCard";
 import { channelIcon } from "../../features/channels/channel-icon";
 import { useChannelDirectory } from "../../features/channels/useChannelDirectory";
-import {
-  ChannelLifecycleUnconfirmed,
-  type ChannelLifecycleCapability,
-} from "../../features/relay/channel-lifecycle";
+import { ChannelLifecycleUnconfirmed } from "../../features/relay/channel-lifecycle";
 import type { WelcomeCommand } from "../../features/relay/channel-lifecycle-protocol";
-import type { ConversationExtensions } from "../../features/conversation/contracts";
 import type { ChannelSummary } from "../../features/relay/contracts";
 import { communityFromScope } from "../../features/relay/gifs";
 import {
@@ -57,9 +60,9 @@ const ChannelIcon = channelIcon({ channelType: "stream" });
 
 /**
  * The default message is never stored: a draft matching it restores it. The
- * default title is this viewer's name for the community, so it is never
- * inferred: an untouched title resends what is published, Restore defaults
- * (`null`) sends the default, and an edited title is sent as written.
+ * default title depends on the viewer, so it is never inferred: an untouched
+ * title resends what is published, Restore defaults (`null`) sends the
+ * default, and an edited title is sent as written.
  */
 function commandFor(
   draft: Readonly<{ text: string; title?: string | null }>,
@@ -89,13 +92,16 @@ function saveError(error: unknown) {
   return message(error);
 }
 
+const bidi = "Remove the hidden text-direction characters.";
 const problems = {
   empty: "Enter a welcome message, or restore the defaults.",
+  bidi,
   long: `Shorten the message to ${MAX} characters.`,
   control: "Remove control characters. Line breaks and tabs are fine.",
 };
 const titleProblems = {
   empty: "Enter a title, or restore the defaults.",
+  bidi,
   long: `Shorten the title to ${TITLE_MAX} characters.`,
   control: "Use one line of text for the title.",
 };
@@ -104,15 +110,13 @@ const titleProblems = {
  * which other channels they join. */
 export function WelcomeSettings({
   relay,
-  communityName,
+  communities,
   active,
-  extensions,
 }: {
   relay: RelayData;
-  communityName?: string | undefined;
+  /** Names the community in the default title. */
+  communities?: CommunityReader | undefined;
   active(): boolean;
-  /** The conversation renderers, so the preview draws links as the card does. */
-  extensions?: ConversationExtensions | undefined;
 }) {
   const connection = useRelayConnection(relay);
   const community =
@@ -132,9 +136,8 @@ export function WelcomeSettings({
           session={connection.session}
           scope={connection.scope}
           community={community}
-          communityName={communityName}
+          communities={communities}
           active={active}
-          extensions={extensions}
         />
       ) : (
         <p role="status">Choose a connected community to set its welcome.</p>
@@ -159,6 +162,8 @@ type Load =
 type Option = Readonly<{
   id: string;
   name: string;
+  /** Published: a joined channel's follows the roster, another's the
+   * directory, and both take a confirmed change at once. */
   autoJoin: boolean;
   /** In the viewer's roster, which follows the relay's metadata. */
   joined: boolean;
@@ -169,6 +174,11 @@ type Draft = Readonly<{
   text: string;
   title?: string | null;
 }>;
+/** One starter flag Save sets. */
+type StarterStep = Readonly<{ id: string; name: string; enabled: boolean }>;
+/** Drafted starter flags by channel; Save sets each that differs from the
+ * published one. */
+type StarterDraft = ReadonlyMap<string, boolean>;
 
 /** Browsing with no search lists this many channels by name; a search covers
  * every channel, so a community with thousands still opens a short list. */
@@ -241,41 +251,68 @@ function eligibleChannels(
   return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** The Check again button leaves with its notice; focus stays in the form,
+ * on the first of `targets` shown. */
+function stayInForm(
+  check: HTMLElement | null,
+  ...targets: readonly (HTMLElement | null)[]
+) {
+  if (document.activeElement === check)
+    targets.find(Boolean)?.focus({ preventScroll: true });
+}
+
+const without = <T,>(map: ReadonlyMap<string, T>, id: string) => {
+  if (!map.has(id)) return map;
+  const next = new Map(map);
+  next.delete(id);
+  return next;
+};
+
 function WelcomeEditor({
   session,
   scope,
   community,
-  communityName,
+  communities,
   active,
-  extensions,
 }: {
   session: RelaySession;
   scope: string;
   community: string;
-  communityName?: string | undefined;
+  communities: CommunityReader | undefined;
   active(): boolean;
-  extensions: ConversationExtensions | undefined;
 }) {
   const lifecycle = session.channelLifecycle;
-  const defaultTitle = defaultWelcomeTitle(communityName);
+  const defaultTitle = useDefaultWelcomeTitle(communities, scope);
+  const formId = useId();
   const [attempt, setAttempt] = useState(0);
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [draft, setDraft] = useState<Draft>();
+  const [starterDraft, setStarterDraft] = useState<StarterDraft>(
+    () => new Map(),
+  );
   const [typed, setTyped] = useState("");
   const [saving, setSaving] = useState(false);
-  // The starter channel whose flag is being changed. The session runs one
-  // channel command at a time, so Save waits for it and it waits for Save.
-  const [toggling, setToggling] = useState<string>();
   const [error, setError] = useState("");
-  // An unconfirmed publication: only a fresh read, never a repeat, settles it.
-  const [unconfirmed, setUnconfirmed] = useState(false);
+  // A failed starter step's reason: a removal's beside its row, an addition's
+  // on the add control, since its row is gone.
+  const [starterErrors, setStarterErrors] = useState<
+    ReadonlyMap<string, string>
+  >(() => new Map());
+  const [addError, setAddError] =
+    useState<Readonly<{ id: string; message: string }>>();
+  // An unconfirmed publication, of the welcome or of one starter flag: only a
+  // fresh read, never a repeat, settles it.
+  const [unconfirmed, setUnconfirmed] = useState<"welcome" | StarterStep>();
   const [checking, setChecking] = useState(false);
   const [saved, setSaved] = useState(false);
   // The check compares the relay's answer with the draft as it stands then.
   const draftRef = useRef(draft);
   draftRef.current = draft;
+  // The starter steps Save would run, for a check deciding whether all landed.
+  const pendingSteps = useRef<readonly StarterStep[]>([]);
   const checkButton = useRef<HTMLButtonElement>(null);
   const messageInput = useRef<ComposerInputElement>(null);
+  const addInput = useRef<HTMLInputElement>(null);
   const mounted = useRef(true);
   const saveController = useRef<AbortController>(undefined);
   useEffect(() => {
@@ -328,13 +365,17 @@ function WelcomeEditor({
         setLoad({ status: "ready", published });
         if (landed) {
           setDraft(undefined);
-          setSaved(true);
+          // Starter changes still wait for Save.
+          if (!pendingSteps.current.length) setSaved(true);
         }
-        setUnconfirmed(false);
+        setUnconfirmed(undefined);
         setChecking(false);
-        // The Check again button leaves with its notice; stay in the form.
-        if (check && document.activeElement === checkButton.current)
-          messageInput.current?.focus({ preventScroll: true });
+        if (check)
+          stayInForm(
+            checkButton.current,
+            messageInput.current,
+            addInput.current,
+          );
       } catch (reason) {
         if (reading.signal.aborted) return;
         setChecking(false);
@@ -344,7 +385,8 @@ function WelcomeEditor({
     return () => reading.abort();
   }, [community, lifecycle, attempt]);
   const published = load.status === "ready" ? load.published : undefined;
-  const listing = load.status === "ready" || load.status === "unsupported";
+  const supported = load.status !== "unsupported";
+  const listing = load.status === "ready" || !supported;
   const directory = useChannelDirectory(session.channels, listing);
   const roster = useChannelRoster(session.channels);
   const options = useMemo(
@@ -373,11 +415,31 @@ function WelcomeEditor({
     typeof titleDraft === "string"
       ? welcomeTitleProblem(trimmedTitle)
       : undefined;
-  const dirty =
+  const welcomeDirty =
     !!published &&
     (channelId !== published.channelId ||
       command.message !== published.welcome ||
       command.title !== published.title);
+  // The welcome channel's own flag is left as it is. A drafted flag the relay
+  // already shows, as after a check, needs no step.
+  const welcomeChannel = published?.channelId
+    ? options.find((option) => option.id === published.channelId)
+    : undefined;
+  const steps = useMemo(
+    () =>
+      options.flatMap((option): StarterStep[] => {
+        const enabled = starterDraft.get(option.id);
+        return enabled === undefined ||
+          enabled === option.autoJoin ||
+          option.id === welcomeChannel?.id
+          ? []
+          : [{ id: option.id, name: option.name, enabled }];
+      }),
+    [options, starterDraft, welcomeChannel?.id],
+  );
+  pendingSteps.current = steps;
+  const dirty = welcomeDirty || steps.length > 0;
+  const invalid = welcomeDirty && (!channelId || !!problem || !!titleProblem);
   const selected = options.find((option) => option.id === channelId) ?? null;
   // The input shows the chosen name; browsing from there lists every channel.
   const needle = typed === selected?.name ? "" : typed.trim().toLowerCase();
@@ -392,23 +454,210 @@ function WelcomeEditor({
     setSaved(false);
     setError("");
   };
+  const editStarter = (channel: Option, enabled: boolean) => {
+    setStarterDraft((current) =>
+      enabled === channel.autoJoin
+        ? without(current, channel.id)
+        : new Map(current).set(channel.id, enabled),
+    );
+    setStarterErrors((current) => without(current, channel.id));
+    if (enabled || addError?.id === channel.id) setAddError(undefined);
+    setSaved(false);
+    setError("");
+  };
+  const isActive = () => mounted.current && active();
+  // The welcome first, then each starter flag in turn. A confirmed step is
+  // published; a refused one returns to its published state, where its reason
+  // shows; the steps after it stay in the draft.
+  const save = () => {
+    if (saving || !dirty || invalid || unconfirmed || !lifecycle.available)
+      return;
+    const welcome =
+      welcomeDirty && channelId
+        ? {
+            target: channelId,
+            sent: command,
+            name: options.find((option) => option.id === channelId)?.name,
+          }
+        : undefined;
+    const pending = steps;
+    const owner = new AbortController();
+    saveController.current = owner;
+    setSaving(true);
+    setSaved(false);
+    setError("");
+    setStarterErrors(new Map());
+    setAddError(undefined);
+    void (async () => {
+      let step: StarterStep | undefined;
+      try {
+        if (welcome) {
+          await lifecycle.setLanding(
+            welcome.target,
+            welcome.sent,
+            owner.signal,
+            isActive,
+          );
+          if (!mounted.current) return;
+          setLoad({
+            status: "ready",
+            published: {
+              channelId: welcome.target,
+              ...(welcome.name ? { name: welcome.name } : {}),
+              welcome: welcome.sent.message,
+              title: welcome.sent.title,
+            },
+          });
+          setDraft(undefined);
+        }
+        for (const next of pending) {
+          step = next;
+          await lifecycle.run(
+            next.enabled ? "auto-join-on" : "auto-join-off",
+            next.id,
+            owner.signal,
+            isActive,
+          );
+          if (!mounted.current) return;
+          // The confirmed readback already updated the published flag.
+          setStarterDraft((current) => without(current, next.id));
+        }
+        setSaved(true);
+      } catch (reason) {
+        if (!mounted.current || owner.signal.aborted) return;
+        if (reason instanceof ChannelLifecycleUnconfirmed)
+          setUnconfirmed(step ?? "welcome");
+        else if (!step) setError(saveError(reason));
+        else {
+          const { id, enabled } = step;
+          setStarterDraft((current) => without(current, id));
+          if (enabled) setAddError({ id, message: saveError(reason) });
+          else setStarterErrors(new Map([[id, saveError(reason)]]));
+        }
+      } finally {
+        if (mounted.current) setSaving(false);
+      }
+    })();
+  };
+  // A starter step is checked by a strong read of its channel, which also
+  // updates the published flag; the welcome, by reading the card again.
+  const check = () => {
+    setChecking(true);
+    const step = unconfirmed;
+    if (typeof step !== "object") {
+      setAttempt((n) => n + 1);
+      return;
+    }
+    const owner = new AbortController();
+    saveController.current = owner;
+    setError("");
+    void (async () => {
+      try {
+        const state = await lifecycle.readLanding(step.id, owner.signal);
+        if (!mounted.current) return;
+        if (!!state?.autoJoin === step.enabled) {
+          setStarterDraft((current) => without(current, step.id));
+          if (
+            !draftRef.current &&
+            !pendingSteps.current.some(({ id }) => id !== step.id)
+          )
+            setSaved(true);
+        }
+        setUnconfirmed(undefined);
+        stayInForm(checkButton.current, messageInput.current, addInput.current);
+      } catch (reason) {
+        if (!mounted.current || owner.signal.aborted) return;
+        setError(message(reason));
+      } finally {
+        if (mounted.current) setChecking(false);
+      }
+    })();
+  };
   const disabled = saving || !published || !lifecycle.available;
   const starters = (
     <StarterChannels
       channels={options}
-      welcomeChannel={
-        published?.channelId
-          ? options.find((option) => option.id === published.channelId)
-          : undefined
-      }
-      lifecycle={lifecycle}
-      active={() => mounted.current && active()}
+      welcomeChannel={welcomeChannel}
+      draft={starterDraft}
+      onChange={editStarter}
+      available={lifecycle.available}
       saving={saving}
-      onPendingChange={setToggling}
+      errors={starterErrors}
+      addError={addError}
+      addInput={addInput}
       loading={directory.loading}
       failed={!!directory.error}
       // The welcome form offers this retry when it is shown.
-      retry={load.status === "unsupported" ? directory.retry : undefined}
+      retry={supported ? undefined : directory.retry}
+    />
+  );
+  const actions = (draft !== undefined || steps.length > 0) && (
+    <div className="flex flex-wrap items-center justify-end gap-3">
+      <Button
+        type="button"
+        disabled={saving}
+        onClick={() => {
+          setDraft(undefined);
+          setStarterDraft(new Map());
+          setError("");
+          setStarterErrors(new Map());
+          setAddError(undefined);
+        }}
+      >
+        Cancel
+      </Button>
+      <Button
+        // Save submits the welcome form, so Enter in a field saves too.
+        {...(supported
+          ? { type: "submit" as const, form: formId }
+          : { type: "button" as const, onClick: save })}
+        variant="primary"
+        loading={saving}
+        disabled={
+          !dirty || invalid || !lifecycle.available || unconfirmed !== undefined
+        }
+      >
+        Save
+      </Button>
+    </div>
+  );
+  const footer = (error || unconfirmed || actions) && (
+    <div className={styles.fields}>
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+      {unconfirmed && (
+        <div role="alert" className={styles.unconfirmed}>
+          <p className="error">
+            Not confirmed yet. The relay hasn’t shown{" "}
+            {unconfirmed === "welcome"
+              ? "this change"
+              : `the change to #${unconfirmed.name}`}
+            ; check before saving again.
+          </p>
+          <div>
+            <Button
+              ref={checkButton}
+              type="button"
+              loading={checking}
+              onClick={check}
+            >
+              Check again
+            </Button>
+          </div>
+        </div>
+      )}
+      {actions}
+    </div>
+  );
+  const toast = saved && (
+    <ToastNotice
+      title="Welcome saved"
+      tone="success"
+      timeout={5000}
+      onDismiss={() => setSaved(false)}
     />
   );
   return (
@@ -432,8 +681,12 @@ function WelcomeEditor({
         ) : undefined
       }
     >
-      {load.status === "unsupported" ? (
-        starters
+      {!supported ? (
+        <div className={styles.editor}>
+          {starters}
+          {footer}
+          {toast}
+        </div>
       ) : (
         <div
           className={styles.editor}
@@ -443,57 +696,11 @@ function WelcomeEditor({
         >
           <SettingsGroup layout="form">
             <form
+              id={formId}
               className={styles.fields}
               onSubmit={(event) => {
                 event.preventDefault();
-                if (
-                  disabled ||
-                  !dirty ||
-                  !channelId ||
-                  problem ||
-                  titleProblem ||
-                  toggling
-                )
-                  return;
-                const target = channelId;
-                const sent = command;
-                const name = options.find(
-                  (option) => option.id === target,
-                )?.name;
-                const owner = new AbortController();
-                saveController.current = owner;
-                setSaving(true);
-                setSaved(false);
-                setError("");
-                void (async () => {
-                  try {
-                    await lifecycle.setLanding(
-                      target,
-                      sent,
-                      owner.signal,
-                      () => mounted.current && active(),
-                    );
-                    if (!mounted.current) return;
-                    setLoad({
-                      status: "ready",
-                      published: {
-                        channelId: target,
-                        ...(name ? { name } : {}),
-                        welcome: sent.message,
-                        title: sent.title,
-                      },
-                    });
-                    setDraft(undefined);
-                    setSaved(true);
-                  } catch (reason) {
-                    if (!mounted.current || owner.signal.aborted) return;
-                    if (reason instanceof ChannelLifecycleUnconfirmed)
-                      setUnconfirmed(true);
-                    else setError(saveError(reason));
-                  } finally {
-                    if (mounted.current) setSaving(false);
-                  }
-                })();
+                if (!disabled) save();
               }}
             >
               <Combobox.Root<Option>
@@ -605,181 +812,67 @@ function WelcomeEditor({
                   </Button>
                 </div>
               )}
-              {error && (
-                <p role="alert" className="error">
-                  {error}
-                </p>
-              )}
-              {unconfirmed && (
-                <div role="alert" className={styles.unconfirmed}>
-                  <p className="error">
-                    Not confirmed yet. The relay hasn’t shown this change; check
-                    before saving again.
-                  </p>
-                  <div>
-                    <Button
-                      ref={checkButton}
-                      type="button"
-                      loading={checking}
-                      onClick={() => {
-                        setChecking(true);
-                        setAttempt((n) => n + 1);
-                      }}
-                    >
-                      Check again
-                    </Button>
-                  </div>
-                </div>
-              )}
-              {draft && (
-                <div className="flex flex-wrap items-center justify-end gap-3">
-                  <Button
-                    type="button"
-                    disabled={saving}
-                    onClick={() => {
-                      setDraft(undefined);
-                      setError("");
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    loading={saving}
-                    disabled={
-                      !dirty ||
-                      !channelId ||
-                      !!problem ||
-                      !!titleProblem ||
-                      !lifecycle.available ||
-                      unconfirmed ||
-                      !!toggling
-                    }
-                  >
-                    Save
-                  </Button>
-                </div>
-              )}
-              {saved && (
-                <ToastNotice
-                  title="Welcome saved"
-                  tone="success"
-                  timeout={5000}
-                  onDismiss={() => setSaved(false)}
-                />
-              )}
             </form>
           </SettingsGroup>
-          <div className={styles.preview}>
-            <InlineHeader
-              title="Preview"
-              subtitle="Everyone sees this at the start of the welcome channel."
-            />
-            <WelcomeCard level={4} title={command.title || defaultTitle}>
-              <WelcomeMessage
-                message={command.message || undefined}
-                session={session}
-                scope={scope}
-                channelId={channelId ?? ""}
-                extensions={extensions}
-                onOpenLink={() => false}
-                interactive={false}
-              />
-            </WelcomeCard>
-          </div>
           {starters}
+          {footer}
+          {toast}
         </div>
       )}
     </LoadingRegion>
   );
 }
 
-/** A starter's flag as this card knows it: a joined channel's follows the
- * roster; another's, the change confirmed here until the directory shows it. */
-const starter = (channel: Option, confirmed: ReadonlyMap<string, boolean>) =>
-  channel.joined
-    ? channel.autoJoin
-    : (confirmed.get(channel.id) ?? channel.autoJoin);
-
 /**
- * Connected objects: the channels whose relay `auto_join` flag is on, each
- * removable at once, and a search that adds another. Only flagged channels are
- * listed, so the list stays short however many channels the community has.
- * Each change shows once a signed readback confirms it. Community owners and
- * admins may also flag channels they have not joined. The welcome channel is
- * always joined first, so its row is fixed and its own flag is left as it is.
+ * Connected objects: the channels whose relay `auto_join` flag is on, and a
+ * search that adds another. Only starter channels are listed, so the list
+ * stays short however many channels the community has. Add and Remove edit
+ * the draft; Save publishes them. A drafted addition is listed as not saved
+ * yet, and a drafted removal leaves the list until Cancel. Community owners
+ * and admins may also flag channels they have not joined. The welcome channel
+ * is always joined first, so its row is fixed and its own flag is left as it
+ * is.
  */
 function StarterChannels({
   channels,
   welcomeChannel,
-  lifecycle,
-  active,
+  draft,
+  onChange,
+  available,
   saving,
-  onPendingChange,
+  errors,
+  addError,
+  addInput,
   loading,
   failed,
   retry,
 }: {
   channels: readonly Option[];
   welcomeChannel?: Option | undefined;
-  lifecycle: ChannelLifecycleCapability;
-  active(): boolean;
+  draft: StarterDraft;
+  onChange(channel: Option, enabled: boolean): void;
+  available: boolean;
   saving: boolean;
-  onPendingChange(id: string | undefined): void;
+  errors: ReadonlyMap<string, string>;
+  addError?: Readonly<{ id: string; message: string }> | undefined;
+  addInput: RefObject<HTMLInputElement | null>;
   loading: boolean;
   failed: boolean;
   /** Offered here only when nothing else on the card offers it. */
   retry?: (() => void) | undefined;
 }) {
   const heading = useId();
-  const addInput = useRef<HTMLInputElement>(null);
   const [typed, setTyped] = useState("");
-  // The change the relay is confirming. The session runs one channel command
-  // at a time, so Save waits for it and it waits for Save.
-  const [change, setChange] =
-    useState<Readonly<{ id: string; enabled: boolean }>>();
-  const [confirmed, setConfirmed] = useState<ReadonlyMap<string, boolean>>(
-    () => new Map(),
-  );
-  // Failed removals, beside their rows; a failed addition has no row, so its
-  // reason shows on the add control.
-  const [errors, setErrors] = useState<ReadonlyMap<string, string>>(
-    () => new Map(),
-  );
-  const [addError, setAddError] =
-    useState<Readonly<{ id: string; message: string }>>();
-  // The last confirmed change, announced until the next one starts.
-  const [notice, setNotice] = useState<string>();
-  const operation = useRef<AbortController>(undefined);
-  useEffect(() => () => operation.current?.abort(), []);
-  // A kept state is dropped once the row agrees, or turns out to be joined.
-  useEffect(() => {
-    setConfirmed((current) => {
-      let next: Map<string, boolean> | undefined;
-      for (const [id, enabled] of current) {
-        const row = channels.find((channel) => channel.id === id);
-        if (row && (row.joined || row.autoJoin === enabled)) {
-          next ??= new Map(current);
-          next.delete(id);
-        }
-      }
-      return next ?? current;
-    });
-  }, [channels]);
-  // A channel being added shows while the relay confirms it, as one being
-  // removed stays until it has.
   const { starters, addable } = useMemo(() => {
     const starters: Option[] = [];
     const addable: Option[] = [];
     for (const channel of channels)
       if (channel.id !== welcomeChannel?.id)
-        (starter(channel, confirmed) || channel.id === change?.id
-          ? starters
-          : addable
-        ).push(channel);
+        ((draft.get(channel.id) ?? channel.autoJoin) ? starters : addable).push(
+          channel,
+        );
     return { starters, addable };
-  }, [channels, welcomeChannel?.id, confirmed, change?.id]);
+  }, [channels, welcomeChannel?.id, draft]);
   const needle = typed.trim().toLowerCase();
   const matches = useMemo(() => ranked(addable, needle), [addable, needle]);
   const capped = !needle && addable.length > BROWSE_LIMIT;
@@ -787,52 +880,7 @@ function StarterChannels({
     addError && !starters.some((channel) => channel.id === addError.id)
       ? `#${channels.find((channel) => channel.id === addError.id)?.name ?? addError.id.slice(0, 8)}: ${addError.message}`
       : undefined;
-  const busy = saving || change !== undefined || !lifecycle.available;
-  const toggle = async (
-    { id, name }: Option,
-    enabled: boolean,
-    trigger?: HTMLElement,
-  ) => {
-    if (operation.current || saving) return;
-    const controller = new AbortController();
-    operation.current = controller;
-    setChange({ id, enabled });
-    onPendingChange(id);
-    setNotice(undefined);
-    if (enabled) setAddError(undefined);
-    setErrors((current) => {
-      const next = new Map(current);
-      next.delete(id);
-      return next;
-    });
-    try {
-      await lifecycle.run(
-        enabled ? "auto-join-on" : "auto-join-off",
-        id,
-        controller.signal,
-        active,
-      );
-      // The removed row leaves with its button; focus stays in the list.
-      if (trigger && document.activeElement === trigger)
-        addInput.current?.focus({ preventScroll: true });
-      setConfirmed((current) => new Map(current).set(id, enabled));
-      setNotice(`${enabled ? "Added" : "Removed"} #${name}`);
-    } catch (reason) {
-      if (controller.signal.aborted) return;
-      // Setting the same value again is idempotent, so retrying is the check.
-      const message =
-        reason instanceof ChannelLifecycleUnconfirmed
-          ? "Saved, but not confirmed yet. Try again to check."
-          : saveError(reason);
-      if (enabled) setAddError({ id, message });
-      else setErrors((current) => new Map(current).set(id, message));
-    } finally {
-      operation.current = undefined;
-      setChange(undefined);
-      // The form may outlive this list, as when a check finds no support.
-      onPendingChange(undefined);
-    }
-  };
+  const busy = saving || !available;
   const empty = starters.length
     ? undefined
     : loading
@@ -843,11 +891,11 @@ function StarterChannels({
           ? "No other channels added yet"
           : "No channels added yet";
   return (
-    <section aria-labelledby={heading} className={styles.preview}>
+    <section aria-labelledby={heading} className={styles.section}>
       <InlineHeader
         id={heading}
         title="Also add new members to"
-        subtitle="A channel you add applies to people who join from now on, not people already in the community. In an open community, it also adds people who come back and have never been in that channel."
+        subtitle="Changes apply when you save, to people who join from then on, not people already in the community. In an open community, an added channel also adds people who come back and have never been in it."
       />
       {(welcomeChannel || starters.length > 0 || empty) && (
         <SettingsGroup>
@@ -859,24 +907,25 @@ function StarterChannels({
             />
           )}
           {starters.map((channel) => {
-            const adding = change?.id === channel.id && change.enabled;
-            const removing = change?.id === channel.id && !change.enabled;
             const error = errors.get(channel.id);
             return (
               <Fragment key={channel.id}>
                 <PreferenceRow
                   icon={<ChannelIcon />}
                   title={channel.name}
-                  subtitle={adding ? "Adding…" : undefined}
+                  subtitle={
+                    channel.autoJoin ? undefined : "Added · not saved yet"
+                  }
                   trailing={
                     <Button
                       variant="outline"
-                      loading={removing}
-                      disabled={busy && !removing}
+                      disabled={busy}
                       aria-label={`Remove #${channel.name} from starter channels`}
-                      onClick={(event) =>
-                        void toggle(channel, false, event.currentTarget)
-                      }
+                      onClick={() => {
+                        onChange(channel, false);
+                        // The row leaves with its button; focus stays in the list.
+                        addInput.current?.focus({ preventScroll: true });
+                      }}
                     >
                       Remove
                     </Button>
@@ -910,12 +959,12 @@ function StarterChannels({
         onValueChange={(option) => {
           if (!option) return;
           setTyped("");
-          void toggle(option, true);
+          onChange(option, true);
         }}
         itemToStringLabel={(option) => option.name}
         itemToStringValue={(option) => option.id}
         isItemEqualToValue={(a, b) => a.id === b.id}
-        disabled={!lifecycle.available}
+        disabled={!available}
         autoHighlight
       >
         <Combobox.Control
@@ -951,14 +1000,6 @@ function StarterChannels({
             Retry loading channels
           </Button>
         </div>
-      )}
-      {notice && (
-        <ToastNotice
-          title={notice}
-          tone="success"
-          timeout={5000}
-          onDismiss={() => setNotice(undefined)}
-        />
       )}
     </section>
   );

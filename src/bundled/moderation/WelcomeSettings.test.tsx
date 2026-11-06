@@ -16,11 +16,11 @@ import {
   communityRequest,
   type CommunityInfo,
 } from "../../features/communities/api";
-import { DEFAULT_WELCOME_MESSAGE } from "../../features/communities/WelcomeCard";
 import type {
-  ConversationExtensions,
-  LinkRenderer,
-} from "../../features/conversation/contracts";
+  CommunityReader,
+  Membership,
+} from "../../features/communities/service";
+import { DEFAULT_WELCOME_MESSAGE } from "../../features/communities/WelcomeCard";
 import type { ComposerInputElement } from "../../features/messages/composer-dom";
 import { composerDOMFixture } from "../../features/messages/composer-testing";
 import { profileTarget } from "../../features/profiles/target";
@@ -33,9 +33,7 @@ import type { ChannelSummary } from "../../features/relay/contracts";
 import { PublishRejected } from "../../features/relay/outbox";
 import type { RelayData } from "../../features/relay/service";
 import type { RelaySession } from "../../features/relay/session";
-import type { Contribution } from "../../plugins/contributions";
 import { ToastProvider } from "../../shared/design-system/ui/Toast";
-import { apply as applyLinks } from "../links/index";
 import { WelcomeSettings } from "./WelcomeSettings";
 
 vi.mock("../../features/communities/api", async (importOriginal) => ({
@@ -54,7 +52,14 @@ const owner = "0".repeat(64);
 const lobby = "11111111-1111-4111-8111-111111111111";
 const square = "22222222-2222-4222-8222-222222222222";
 const random = "55555555-5555-4555-8555-555555555555";
-const rows = [
+type DirectoryRow = Readonly<{
+  id: string;
+  name: string;
+  channelType: "stream" | "forum";
+  autoJoin?: true;
+  archived?: true;
+}>;
+const rows: DirectoryRow[] = [
   { id: lobby, name: "Lobby", channelType: "stream" as const },
   {
     id: square,
@@ -80,53 +85,53 @@ const rows = [
   },
 ];
 
-/** The conversation renderers the app provides, with the bundled Links
- * renderer that draws Buzz and web links. */
-function linkExtensions(): ConversationExtensions {
-  const links: Contribution<LinkRenderer>[] = [];
-  applyLinks({
-    conversation: {
-      registerLink: (renderer: LinkRenderer) =>
-        links.push({
-          ...renderer,
-          key: `buzz.links/${renderer.id}`,
-          pluginId: "buzz.links",
-          revision: "one",
-        }),
-    },
-  } as never);
-  const none: readonly never[] = [];
-  const reader = <T,>(entries: readonly T[]) => ({
-    snapshot: () => entries,
-    subscribe: () => () => {},
-  });
-  return { links: reader(links), tools: reader(none), inline: reader(none) };
-}
-
 function setup({
   info = { policy: null, landingChannels: true, landingChannel: lobby },
   landing = { landing: true, welcome: "Hi there", name: "Lobby" },
   joined = [],
   directory = rows,
-  extensions,
   names,
+  membership = { name: "Primary" },
 }: {
   info?: CommunityInfo;
   landing?: ChannelLanding | undefined;
   /** The viewer's own channels, beside the directory. */
   joined?: ChannelSummary[];
-  directory?: typeof rows;
-  extensions?: ConversationExtensions;
+  directory?: DirectoryRow[];
   /** Known names by public key. */
   names?: Readonly<Record<string, string>>;
+  /** How the viewer's saved membership names the community. */
+  membership?: Omit<Membership, "id">;
 } = {}) {
-  const readLanding = vi.fn(async () => landing);
+  const readLanding = vi.fn<ChannelLifecycleCapability["readLanding"]>(
+    async () => landing,
+  );
   const setLanding = vi.fn<ChannelLifecycleCapability["setLanding"]>(
     async () => {},
   );
-  const run = vi.fn<ChannelLifecycleCapability["run"]>(async () => {});
   let list = { status: "ready", channels: joined };
+  let listed = directory;
   const rosterListeners = new Set<() => void>();
+  const directoryListeners = new Set<() => void>();
+  /** The relay shows a channel's starter flag, as a strong read hands it to
+   * the roster and the directory. */
+  const flag = (id: string, enabled: boolean) => {
+    const set = <T extends { id: string; autoJoin?: true }>(row: T): T => {
+      if (row.id !== id) return row;
+      const { autoJoin: _, ...rest } = row;
+      return (enabled ? { ...rest, autoJoin: true } : rest) as T;
+    };
+    listed = listed.map(set);
+    list = { ...list, channels: list.channels.map(set) };
+    act(() => {
+      for (const listener of [...rosterListeners, ...directoryListeners])
+        listener();
+    });
+  };
+  // A confirmed command's readback updates the flag before it resolves.
+  const run = vi.fn<ChannelLifecycleCapability["run"]>(async (action, id) =>
+    flag(id, action === "auto-join-on"),
+  );
   const session = {
     viewer: owner,
     media: () => undefined,
@@ -146,9 +151,12 @@ function setup({
         rosterListeners.add(listener);
         return () => rosterListeners.delete(listener);
       },
-      subscribeDirectory: () => () => {},
-      openDirectory: () => directory,
-      browseDirectory: () => directory,
+      subscribeDirectory(listener: () => void) {
+        directoryListeners.add(listener);
+        return () => directoryListeners.delete(listener);
+      },
+      openDirectory: () => listed,
+      browseDirectory: () => listed,
       readDirectory: async () => ({ partial: false }),
       directoryComplete: () => true,
     },
@@ -182,13 +190,18 @@ function setup({
       for (const listener of listeners) listener();
     });
   };
+  const communities = {
+    snapshot: () => ({
+      memberships: [{ id: "https://primary.example", ...membership }],
+    }),
+    subscribe: () => () => {},
+  } as unknown as CommunityReader;
   vi.mocked(communityRequest).mockResolvedValue(info);
   const view = render(
     <WelcomeSettings
       relay={relay}
-      communityName="Primary"
+      communities={communities}
       active={() => true}
-      extensions={extensions}
     />,
     { wrapper: ToastProvider },
   );
@@ -196,6 +209,7 @@ function setup({
     readLanding,
     setLanding,
     run,
+    flag,
     setJoined,
     reconnect,
     view,
@@ -234,14 +248,11 @@ it("opens on the designated channel, its title and its message, read fresh", asy
     expect.any(AbortSignal),
   );
   expect(readLanding).toHaveBeenCalledWith(lobby, expect.any(AbortSignal));
-  expect(
-    screen.getByRole("region", { name: "Welcome to Primary" }),
-  ).toHaveTextContent("Hi there");
   // Nothing changed yet, so there is nothing to save.
   expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
 });
 
-it("opens on a custom title and renders the message as Markdown in the preview", async () => {
+it("opens on a custom title", async () => {
   setup({
     landing: {
       landing: true,
@@ -251,8 +262,7 @@ it("opens on a custom title and renders the message as Markdown in the preview",
     },
   });
   await waitFor(() => expect(titleField()).toHaveValue("Hello, newcomer"));
-  const preview = screen.getByRole("region", { name: "Hello, newcomer" });
-  expect(preview.querySelector("strong")).toHaveTextContent("hi");
+  expect(messageField()).toHaveValue("Say **hi**");
   expect(
     screen.getByText(
       /Format with the toolbar or Markdown\. To link a channel or person, paste a copied channel link or npub\./,
@@ -283,8 +293,6 @@ it("writes toolbar formatting and a pasted channel link into the message as Mark
   expect(input).toHaveFocus();
   await user.keyboard("Join");
   expect(input.querySelector("strong")).toHaveTextContent("Join");
-  const preview = screen.getByRole("region", { name: "Welcome to Primary" });
-  expect(preview.querySelector("strong")).toHaveTextContent("Join");
   await user.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() =>
     expect(setLanding).toHaveBeenCalledWith(
@@ -294,35 +302,6 @@ it("writes toolbar formatting and a pasted channel link into the message as Mark
       expect.any(Function),
     ),
   );
-});
-
-it("draws channel links in the preview as the welcome card does", async () => {
-  // A channel's Copy link writes the bare link; the joined list names it.
-  setup({
-    landing: {
-      landing: true,
-      welcome: `Say hi in buzz://channel/${square}`,
-      name: "Lobby",
-    },
-    joined: [{ id: square, name: "Town square", channelType: "stream" }],
-    extensions: linkExtensions(),
-  });
-  const preview = await screen.findByRole("region", {
-    name: "Welcome to Primary",
-  });
-  await waitFor(() =>
-    expect(preview.querySelector("[data-link-kind='channel']")).not.toBeNull(),
-  );
-  const link = preview.querySelector("[data-link-kind='channel']");
-  // The channel icon supplies the hash, as in the timeline.
-  expect(link).toHaveTextContent(/^Town square$/);
-  expect(link?.querySelector("svg")).not.toBeNull();
-  expect(link?.closest("[data-link-renderer]")).toHaveAttribute(
-    "data-link-renderer",
-    "buzz.links/links",
-  );
-  // The preview stays inert: no link to follow.
-  expect(within(preview).queryByRole("link")).toBeNull();
 });
 
 /** A plain-text clipboard holding `text`. */
@@ -353,13 +332,7 @@ it("links a pasted npub to the person, named as their profile names them", async
   await waitFor(() => expect(messageField()).toHaveValue("Hi there"));
   // Copy npub writes the bare npub.
   pasteIntoMessage(npub);
-  const preview = screen.getByRole("region", { name: "Welcome to Primary" });
-  await waitFor(() =>
-    expect(preview.querySelector("[data-profile-target]")).toHaveTextContent(
-      "Alice",
-    ),
-  );
-  await user.click(screen.getByRole("button", { name: "Save" }));
+  await user.click(await screen.findByRole("button", { name: "Save" }));
   await waitFor(() =>
     expect(setLanding).toHaveBeenCalledWith(
       lobby,
@@ -488,13 +461,6 @@ it("opens published Markdown as its source and sends it back unchanged", async (
     landing: { landing: true, welcome: markdown, name: "Lobby" },
   });
   await waitFor(() => expect(messageField()).toHaveValue(markdown));
-  const preview = screen.getByRole("region", { name: "Welcome to Primary" });
-  expect(preview.querySelector("strong")).toHaveTextContent("Welcome");
-  expect(preview.querySelector("em")).toHaveTextContent("Primary");
-  expect(preview.querySelectorAll("li")).toHaveLength(2);
-  expect(preview.querySelector("[data-profile-target]")).toHaveTextContent(
-    "Ada",
-  );
   // Nothing changed yet, so there is nothing to save.
   expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   const input = messageField() as ComposerInputElement;
@@ -608,9 +574,6 @@ it("normalizes line endings and trims the title and message before sending", asy
   await waitFor(() => expect(messageField()).toHaveValue("Hi there"));
   fireEvent.change(messageField(), { target: { value: "  Hi\r\nall  " } });
   fireEvent.change(titleField(), { target: { value: "  Hello, newcomer " } });
-  expect(
-    screen.getByRole("region", { name: "Hello, newcomer" }),
-  ).toHaveTextContent("Hi all");
   await user.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() =>
     expect(setLanding).toHaveBeenCalledWith(
@@ -675,6 +638,54 @@ it("blocks titles the relay would refuse", async () => {
   expect(screen.getByText("120 of 120 characters")).toBeVisible();
   expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   expect(setLanding).not.toHaveBeenCalled();
+});
+
+it("blocks invisible-only text and hidden direction characters, as the relay does", async () => {
+  const { setLanding } = setup();
+  await waitFor(() => expect(messageField()).toHaveValue("Hi there"));
+  // Zero-width and braille-blank characters alone leave nothing to read.
+  fireEvent.change(messageField(), { target: { value: "\u200B\u2800" } });
+  expect(
+    screen.getByText("Enter a welcome message, or restore the defaults."),
+  ).toBeVisible();
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  fireEvent.change(messageField(), { target: { value: "\u202Eabc" } });
+  expect(
+    screen.getByText("Remove the hidden text-direction characters."),
+  ).toBeVisible();
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  // A zero-width space inside readable text is fine.
+  fireEvent.change(messageField(), { target: { value: "Hello\u200Bworld" } });
+  expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  fireEvent.change(titleField(), { target: { value: " \u200B " } });
+  expect(
+    screen.getByText("Enter a title, or restore the defaults."),
+  ).toBeVisible();
+  fireEvent.change(titleField(), { target: { value: "Hi\u2066there" } });
+  expect(
+    screen.getByText("Remove the hidden text-direction characters."),
+  ).toBeVisible();
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  expect(setLanding).not.toHaveBeenCalled();
+});
+
+it('titles the default "Welcome" for a community known only by its address', async () => {
+  // Joined without a published name, the membership holds only the host.
+  const { setLanding, user } = setup({
+    membership: { name: "primary.example" },
+  });
+  await waitFor(() => expect(titleField()).toHaveValue("Welcome"));
+  fireEvent.change(messageField(), { target: { value: "Say hello" } });
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  // An untouched default title is sent as the default.
+  await waitFor(() =>
+    expect(setLanding).toHaveBeenCalledWith(
+      lobby,
+      welcome("Say hello"),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    ),
+  );
 });
 
 it("resends a published title untouched, even one matching this viewer's default", async () => {
@@ -912,7 +923,7 @@ it("lists only the starter channels, the welcome channel fixed first", async () 
   expect(within(group).queryByText("Random")).toBeNull();
   expect(within(group).queryByText("Staff")).toBeNull();
   expect(group).toHaveTextContent(
-    "A channel you add applies to people who join from now on",
+    "Changes apply when you save, to people who join from then on",
   );
   // The search offers the rest: neither the welcome channel nor a starter.
   await user.click(
@@ -970,81 +981,107 @@ it("browses the first 50 channels by name in both pickers and finds the rest by 
   expect(screen.queryByText(hint)).toBeNull();
 });
 
-it("adds a starter from the search through the channel lifecycle, listed while the relay confirms", async () => {
-  const { run, user } = setup();
-  await waitFor(() => expect(channel()).toHaveValue("Lobby"));
-  fireEvent.change(messageField(), { target: { value: "Say hello" } });
-  let settle!: () => void;
+/** Holds the next starter command until `release`, as the relay confirms. */
+function holdRun(
+  run: ReturnType<typeof setup>["run"],
+  flag: ReturnType<typeof setup>["flag"],
+) {
+  let release!: () => void;
   run.mockImplementationOnce(
-    () =>
+    (action, id) =>
       new Promise<void>((resolve) => {
-        settle = resolve;
+        release = () => {
+          flag(id, action === "auto-join-on");
+          resolve();
+        };
       }),
   );
+  return () => act(async () => release());
+}
+
+it("adds a starter to the draft and publishes it, after the welcome, on Save", async () => {
+  const { flag, run, setLanding, user } = setup();
+  await waitFor(() => expect(channel()).toHaveValue("Lobby"));
   await user.type(addField(), "ran");
   await user.click(await screen.findByRole("option", { name: "Random" }));
+  // Only the draft changes: the row is listed as not saved yet.
+  expect(run).not.toHaveBeenCalled();
+  expect(addField()).toHaveValue("");
+  expect(within(starters()).getByText("Added · not saved yet")).toBeVisible();
+  expect(remove("Random")).toBeEnabled();
+  // A starter change alone offers Save.
+  expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  fireEvent.change(messageField(), { target: { value: "Say hello" } });
+  const release = holdRun(run, flag);
+  await user.click(screen.getByRole("button", { name: "Save" }));
   try {
-    expect(run).toHaveBeenCalledWith(
-      "auto-join-on",
-      random,
-      expect.any(AbortSignal),
-      expect.any(Function),
+    await waitFor(() =>
+      expect(run).toHaveBeenCalledWith(
+        "auto-join-on",
+        random,
+        expect.any(AbortSignal),
+        expect.any(Function),
+      ),
     );
-    expect(addField()).toHaveValue("");
-    // The new row shows at once; one channel command at a time, and the
-    // welcome waits for it.
-    expect(within(starters()).getByText("Adding…")).toBeVisible();
+    // The welcome is published first, then each starter flag.
+    expect(setLanding.mock.invocationCallOrder[0]).toBeLessThan(
+      run.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(screen.getByRole("button", { name: "Save" })).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
     expect(remove("Random")).toBeDisabled();
     expect(remove("Town square")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   } finally {
-    await act(async () => settle());
+    await release();
   }
-  // The confirmed flag keeps the row; the directory is not yet republished.
-  expect(await screen.findByText("Added #Random")).toBeInTheDocument();
-  expect(within(starters()).queryByText("Adding…")).toBeNull();
+  // One notice for the whole save, and the row is now published.
+  expect(await screen.findByText("Welcome saved")).toBeInTheDocument();
+  expect(screen.queryByText("Added #Random")).toBeNull();
+  expect(within(starters()).queryByText("Added · not saved yet")).toBeNull();
   expect(remove("Random")).toBeEnabled();
-  expect(remove("Town square")).toBeEnabled();
-  expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  expect(run).toHaveBeenCalledOnce();
   await user.click(
     screen.getByRole("button", { name: "Browse channels to add" }),
   );
   expect(await screen.findByText("No matching public channels.")).toBeVisible();
 });
 
-it("removes a starter through the channel lifecycle, keeping its row until the relay confirms", async () => {
-  const { run, user } = setup();
+it("drops a removed starter from the list until Cancel, and publishes the removal on Save", async () => {
+  const { run, setLanding, user } = setup();
   await waitFor(() => expect(channel()).toHaveValue("Lobby"));
-  fireEvent.change(messageField(), { target: { value: "Say hello" } });
-  let settle!: () => void;
-  run.mockImplementationOnce(
-    () =>
-      new Promise<void>((resolve) => {
-        settle = resolve;
-      }),
-  );
   await user.click(remove("Town square"));
-  try {
-    expect(run).toHaveBeenCalledWith(
-      "auto-join-off",
-      square,
-      expect.any(AbortSignal),
-      expect.any(Function),
-    );
-    expect(remove("Town square")).toHaveAttribute("aria-busy", "true");
-    expect(remove("Town square")).toHaveFocus();
-    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
-  } finally {
-    await act(async () => settle());
-  }
   // The row leaves with its button, so focus moves to the search.
+  expect(run).not.toHaveBeenCalled();
   expect(removable("Town square")).toBeNull();
   expect(addField()).toHaveFocus();
-  expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
-  expect(await screen.findByText("Removed #Town square")).toBeInTheDocument();
   expect(within(starters()).getByRole("status")).toHaveTextContent(
     "No other channels added yet",
   );
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(remove("Town square")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  await user.click(remove("Town square"));
+  // Adding back a drafted removal leaves nothing to save.
+  await user.type(addField(), "town");
+  await user.click(await screen.findByRole("option", { name: "Town square" }));
+  expect(within(starters()).queryByText("Added · not saved yet")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  await user.click(remove("Town square"));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText("Welcome saved")).toBeInTheDocument();
+  // An unchanged welcome is not republished.
+  expect(setLanding).not.toHaveBeenCalled();
+  expect(run).toHaveBeenCalledExactlyOnceWith(
+    "auto-join-off",
+    square,
+    expect.any(AbortSignal),
+    expect.any(Function),
+  );
+  expect(removable("Town square")).toBeNull();
   // Removed, it can be added again.
   await user.click(
     screen.getByRole("button", { name: "Browse channels to add" }),
@@ -1056,7 +1093,7 @@ it("removes a starter through the channel lifecycle, keeping its row until the r
   ]);
 });
 
-it("follows the roster for a joined channel instead of its own confirmed state", async () => {
+it("follows the roster for a joined channel once its flag is saved", async () => {
   const unlisted: ChannelSummary = {
     id: "66666666-6666-4666-8666-666666666666",
     name: "Unlisted",
@@ -1067,28 +1104,30 @@ it("follows the roster for a joined channel instead of its own confirmed state",
   await waitFor(() => expect(channel()).toHaveValue("Lobby"));
   await user.type(addField(), "unl");
   await user.click(await screen.findByRole("option", { name: "Unlisted" }));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText("Welcome saved")).toBeInTheDocument();
   expect(run).toHaveBeenCalledOnce();
-  // Every other control is held until the command settles.
-  await waitFor(() => expect(remove("Town square")).toBeEnabled());
-  // The readback republishes the joined channel; that is what the list shows.
-  expect(removable("Unlisted")).toBeNull();
-  setJoined([{ ...unlisted, autoJoin: true }]);
+  // The readback republished the joined channel; that is what the list shows.
   expect(remove("Unlisted")).toBeVisible();
+  expect(within(starters()).queryByText("Added · not saved yet")).toBeNull();
   // Another admin's later change shows too; nothing kept here overrides it.
   setJoined([unlisted]);
   expect(removable("Unlisted")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
 });
 
-it("explains a failed removal beside its row and a failed addition on the search", async () => {
+it("explains a refused removal beside its row and a refused addition on the search", async () => {
   const { run, user } = setup();
   await waitFor(() => expect(channel()).toHaveValue("Lobby"));
   run.mockRejectedValueOnce(new PublishRejected("rejected"));
   await user.click(remove("Town square"));
+  await user.click(screen.getByRole("button", { name: "Save" }));
   const alert = await screen.findByRole("alert");
   expect(alert).toHaveTextContent(
     "Only community owners and admins can change this.",
   );
-  // The message follows its row, before the search.
+  // The refused removal is listed again, its reason after its row and
+  // before the search; nothing is left to save.
   expect(
     remove("Town square").compareDocumentPosition(alert) &
       Node.DOCUMENT_POSITION_FOLLOWING,
@@ -1097,21 +1136,17 @@ it("explains a failed removal beside its row and a failed addition on the search
     alert.compareDocumentPosition(addField()) &
       Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
-  // Repeating the same change is how an unconfirmed one is checked.
-  run.mockRejectedValueOnce(
-    new ChannelLifecycleUnconfirmed(new Error("timeout")),
-  );
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  expect(screen.queryByText("Welcome saved")).toBeNull();
+  // Removing it again clears the reason.
   await user.click(remove("Town square"));
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Saved, but not confirmed yet. Try again to check.",
-  );
-  await user.click(remove("Town square"));
-  await waitFor(() => expect(removable("Town square")).toBeNull());
   expect(screen.queryByRole("alert")).toBeNull();
-  // A failed addition has no row, so the search explains it.
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  // A refused addition has no row, so the search explains it.
   run.mockRejectedValueOnce(new PublishRejected("rejected"));
   await user.type(addField(), "ran");
   await user.click(await screen.findByRole("option", { name: "Random" }));
+  await user.click(screen.getByRole("button", { name: "Save" }));
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "#Random: Only community owners and admins can change this.",
   );
@@ -1119,11 +1154,110 @@ it("explains a failed removal beside its row and a failed addition on the search
   // Adding it again clears the reason.
   await user.type(addField(), "ran");
   await user.click(await screen.findByRole("option", { name: "Random" }));
-  await waitFor(() => expect(remove("Random")).toBeEnabled());
+  expect(remove("Random")).toBeEnabled();
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
-it("holds starter changes while the welcome saves", async () => {
+it("publishes the steps before a refusal and keeps the ones after it in the draft", async () => {
+  const unlisted: ChannelSummary = {
+    id: "66666666-6666-4666-8666-666666666666",
+    name: "Unlisted",
+    channelType: "stream",
+    visibility: "public",
+  };
+  const { run, setLanding, user } = setup({ joined: [unlisted] });
+  await waitFor(() => expect(channel()).toHaveValue("Lobby"));
+  fireEvent.change(messageField(), { target: { value: "Say hello" } });
+  // Steps run by channel name: Random, Town square, then Unlisted.
+  await user.type(addField(), "ran");
+  await user.click(await screen.findByRole("option", { name: "Random" }));
+  await user.click(remove("Town square"));
+  await user.type(addField(), "unl");
+  await user.click(await screen.findByRole("option", { name: "Unlisted" }));
+  const confirm = run.getMockImplementation();
+  if (!confirm) throw new Error("The fixture confirms starter commands");
+  run
+    .mockImplementationOnce(confirm)
+    .mockRejectedValueOnce(
+      new PublishRejected("rejected", "invalid: channel is busy"),
+    );
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Channel is busy");
+  expect(setLanding).toHaveBeenCalledOnce();
+  expect(run.mock.calls.map(([action, id]) => [action, id])).toEqual([
+    ["auto-join-on", random],
+    ["auto-join-off", square],
+  ]);
+  // The welcome is published, so its draft is gone.
+  expect(messageField()).toHaveValue("Say hello");
+  expect(screen.queryByText("Welcome saved")).toBeNull();
+  // Random is published, the refused removal is listed again with its
+  // reason, and the step after it waits in the draft.
+  expect(remove("Random")).toBeVisible();
+  expect(remove("Town square")).toBeVisible();
+  const drafted = within(starters()).getAllByText("Added · not saved yet");
+  expect(drafted).toHaveLength(1);
+  expect(remove("Unlisted").closest(".buzz-preference-row")).toHaveTextContent(
+    "Added · not saved yet",
+  );
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText("Welcome saved")).toBeInTheDocument();
+  expect(setLanding).toHaveBeenCalledOnce();
+  expect(run.mock.calls.slice(2).map(([action, id]) => [action, id])).toEqual([
+    ["auto-join-on", unlisted.id],
+  ]);
+  expect(within(starters()).queryByText("Added · not saved yet")).toBeNull();
+});
+
+it("checks an unconfirmed starter step by reading its channel again", async () => {
+  const { flag, readLanding, run, user } = setup();
+  await waitFor(() => expect(channel()).toHaveValue("Lobby"));
+  readLanding.mockClear();
+  run.mockRejectedValueOnce(
+    new ChannelLifecycleUnconfirmed(new Error("timeout")),
+  );
+  await user.click(remove("Town square"));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent(
+    "Not confirmed yet. The relay hasn’t shown the change to #Town square; check before saving again.",
+  );
+  // The removal stays drafted, but another save would republish blind.
+  expect(removable("Town square")).toBeNull();
+  expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  // The relay does not show it yet: Save opens again for the same draft.
+  readLanding.mockResolvedValueOnce({ name: "Town square", autoJoin: true });
+  await user.click(screen.getByRole("button", { name: "Check again" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled(),
+  );
+  expect(readLanding).toHaveBeenCalledExactlyOnceWith(
+    square,
+    expect.any(AbortSignal),
+  );
+  expect(screen.queryByText(/Not confirmed yet/)).toBeNull();
+  expect(screen.queryByText("Welcome saved")).toBeNull();
+  expect(removable("Town square")).toBeNull();
+  // Unconfirmed again, and this time the check finds it.
+  run.mockRejectedValueOnce(
+    new ChannelLifecycleUnconfirmed(new Error("timeout")),
+  );
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await screen.findByText(/Not confirmed yet/);
+  readLanding.mockImplementationOnce(async () => {
+    flag(square, false);
+    return { name: "Town square" };
+  });
+  await user.click(screen.getByRole("button", { name: "Check again" }));
+  expect(await screen.findByText("Welcome saved")).toBeInTheDocument();
+  expect(screen.queryByText(/Not confirmed yet/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  expect(removable("Town square")).toBeNull();
+  // The welcome form was not read again.
+  expect(communityRequest).toHaveBeenCalledOnce();
+});
+
+it("holds starter edits while the welcome saves", async () => {
   const { setLanding, user } = setup();
   let settle!: () => void;
   setLanding.mockImplementationOnce(
@@ -1149,8 +1283,8 @@ it("holds starter changes while the welcome saves", async () => {
   expect(remove("Town square")).toBeEnabled();
 });
 
-it("still lists starter channels when the relay has no welcome channel", async () => {
-  const { readLanding } = setup({
+it("still lists and saves starter channels when the relay has no welcome channel", async () => {
+  const { readLanding, run, user } = setup({
     info: { policy: null, landingChannels: false },
   });
   expect(
@@ -1163,4 +1297,14 @@ it("still lists starter channels when the relay has no welcome channel", async (
   expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
   expect(screen.queryByText("Welcome channel · always joined")).toBeNull();
   expect(readLanding).not.toHaveBeenCalled();
+  await user.click(remove("Town square"));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(await screen.findByText("Welcome saved")).toBeInTheDocument();
+  expect(run).toHaveBeenCalledExactlyOnceWith(
+    "auto-join-off",
+    square,
+    expect.any(AbortSignal),
+    expect.any(Function),
+  );
+  expect(removable("Town square")).toBeNull();
 });

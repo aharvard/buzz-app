@@ -3,7 +3,12 @@ import { CommunityAdmin } from "./CommunityAdmin";
 import { canManageMembership } from "./membership";
 import { WelcomeSettings } from "./WelcomeSettings";
 
-export const inject = ["relay", "settingsCards", "adminAccess", "conversation"];
+export const inject = [
+  "relay",
+  "settingsCards",
+  "adminAccess",
+  "communityReader",
+];
 export const apply: PluginModule["apply"] = (ctx) => {
   const relay = ctx.relay;
   const membership = ctx.adminAccess.membership;
@@ -57,12 +62,11 @@ export const apply: PluginModule["apply"] = (ctx) => {
       subscribe: membership.subscribe,
       ensure: membership.ensure,
     },
-    component: ({ active, community }) => (
+    component: ({ active }) => (
       <WelcomeSettings
         relay={relay}
-        communityName={community?.name}
+        communities={ctx.communityReader}
         active={active}
-        extensions={ctx.conversation}
       />
     ),
   });

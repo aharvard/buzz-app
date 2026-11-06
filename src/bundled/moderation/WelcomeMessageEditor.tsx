@@ -50,9 +50,9 @@ const LinkToken = memo(WelcomeMessage);
  * Identity, channel, message and web links outside code: the spans the editor
  * shows as chips, as the composer does. This is deliberately narrower than
  * `RichComposerInput`'s `decorationsFor`: plain `#name` and `@Name`
- * references and `:shortcode:` emoji are not chips. The preview and card
- * render through `MessageMarkdown`, so they may show a reference that stays
- * plain text here.
+ * references and `:shortcode:` emoji are not chips. The card renders
+ * through `MessageMarkdown`, so it may show a reference that stays plain
+ * text here.
  */
 function linkRanges(text: string, rich: readonly SourceRange[]) {
   const blocked = [...rich, ...markdownRanges(text).literal];

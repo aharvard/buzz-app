@@ -42,18 +42,27 @@ export function normalizeWelcome(text: string) {
   return text.replace(/\r\n?/g, "\n").trim();
 }
 
-// Unicode White_Space, as the relay's `str::trim` sees it: unlike `trim()`
-// it keeps U+FEFF, so a value of only that passes both hosts alike.
-const blank = (text: string) => /^\p{White_Space}*$/u.test(text);
+// The relay's blank rule: every code point is Unicode White_Space or one of
+// these invisible ones (soft hyphen, fillers, joiners and direction marks,
+// variation selectors, Braille blank, BOM, tags and the like).
+const blank = (text: string) =>
+  // biome-ignore lint/suspicious/noMisleadingCharacterClass: each listed code point is matched on its own, joiners and selectors included.
+  /^[\p{White_Space}\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB\u{1D173}-\u{1D17A}\u{E0000}-\u{E007F}]*$/u.test(
+    text,
+  );
+// Bidirectional marks, embeddings, overrides and isolates, refused anywhere.
+const bidi = (text: string) =>
+  /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/u.test(text);
 
 /** Mirrors the relay's rules for a normalized, non-default message: Markdown
  * source whose only control characters are line breaks and tabs. */
 export function welcomeTextProblem(
   text: string,
-): "empty" | "long" | "control" | undefined {
+): "empty" | "bidi" | "long" | "control" | undefined {
   if (blank(text)) return "empty";
+  if (bidi(text)) return "bidi";
   if ([...text].length > WELCOME_MAX_LENGTH) return "long";
-  // eslint-disable-next-line no-control-regex
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: the relay refuses these control characters.
   if (/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(text)) return "control";
   return undefined;
 }
@@ -62,10 +71,11 @@ export function welcomeTextProblem(
  * no control characters at all, nor the Unicode line and paragraph separators. */
 export function welcomeTitleProblem(
   text: string,
-): "empty" | "long" | "control" | undefined {
+): "empty" | "bidi" | "long" | "control" | undefined {
   if (blank(text)) return "empty";
+  if (bidi(text)) return "bidi";
   if ([...text].length > WELCOME_TITLE_MAX_LENGTH) return "long";
-  // eslint-disable-next-line no-control-regex
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: the relay refuses these control characters.
   if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(text)) return "control";
   return undefined;
 }
@@ -80,11 +90,14 @@ export function validWelcomeTitleCommand(text: string) {
   return text === "" || !welcomeTitleProblem(text);
 }
 
-/** Relay support and its currently designated channel, from NIP-11. */
-export function landingInfo(info: unknown): {
+/** Relay support for a welcome channel and its current designation. */
+export type LandingInfo = Readonly<{
   landingChannels: boolean;
   landingChannel?: string;
-} {
+}>;
+
+/** Relay support and its currently designated channel, from NIP-11. */
+export function landingInfo(info: unknown): LandingInfo {
   const record =
     info && typeof info === "object"
       ? (info as Record<string, unknown>)

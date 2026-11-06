@@ -5,6 +5,7 @@ import { useReferenceDirectory } from "../messages/ReferenceText";
 import { splitPartition } from "../relay/partition";
 import type { RelaySession } from "../relay/session";
 import { communityPresentation } from "./community-icon";
+import { communityDestination } from "./destination";
 import type { CommunityReader } from "./service";
 import styles from "./WelcomeCard.module.css";
 
@@ -15,6 +16,34 @@ export const DEFAULT_WELCOME_MESSAGE =
 /** Shown when the community has not set its own welcome title. */
 export function defaultWelcomeTitle(communityName?: string | undefined) {
   return communityName ? `Welcome to ${communityName}` : "Welcome";
+}
+
+const noCommunities = () => () => {};
+const noSnapshot = () => undefined;
+
+/** The default title for the community of the relay session `scope`. Only a
+ * configured name counts, this viewer's own or the relay's published one; a
+ * community known only by its address is welcomed without a name. */
+export function useDefaultWelcomeTitle(
+  communities: CommunityReader | undefined,
+  scope: string,
+) {
+  const snapshot = useSyncExternalStore(
+    communities?.subscribe ?? noCommunities,
+    communities?.snapshot ?? noSnapshot,
+  );
+  const origin = splitPartition(scope)?.communityOrigin;
+  let name: string | undefined;
+  if (origin && origin !== "offline")
+    try {
+      const presented = communityPresentation(origin, snapshot?.memberships);
+      // Without a configured name, the presentation falls back to the host.
+      if (presented.name !== communityDestination(origin).name)
+        name = presented.name;
+    } catch {
+      // An unscoped reader has no community presentation to show.
+    }
+  return defaultWelcomeTitle(name);
 }
 
 /** The welcome channel's introduction; a timeline start, never a message. */
@@ -44,7 +73,8 @@ export function WelcomeCard({
  * The welcome message: Markdown source rendered as a message body is, with
  * its `buzz://` channel and message links and `nostr:npub` identity links.
  * Identity links name people without notifying them. A non-interactive
- * preview shows the same references without their actions.
+ * render, such as the editor's link chips, shows the same references without
+ * their actions.
  */
 export function WelcomeMessage({
   message,
@@ -95,11 +125,8 @@ export function WelcomeMessage({
   );
 }
 
-const noCommunities = () => () => {};
-const noSnapshot = () => undefined;
-
-/** The welcome card, titled by default with the name this viewer knows the
- * community by. */
+/** The welcome card, titled by default with the community's configured
+ * name (see {@link useDefaultWelcomeTitle}). */
 export function CommunityWelcomeCard({
   communities,
   scope,
@@ -113,21 +140,6 @@ export function CommunityWelcomeCard({
   title?: string | undefined;
   children: ReactNode;
 }) {
-  const snapshot = useSyncExternalStore(
-    communities?.subscribe ?? noCommunities,
-    communities?.snapshot ?? noSnapshot,
-  );
-  const origin = splitPartition(scope)?.communityOrigin;
-  let name: string | undefined;
-  if (origin && origin !== "offline")
-    try {
-      name = communityPresentation(origin, snapshot?.memberships).name;
-    } catch {
-      // An unscoped reader has no community presentation to show.
-    }
-  return (
-    <WelcomeCard title={title ?? defaultWelcomeTitle(name)}>
-      {children}
-    </WelcomeCard>
-  );
+  const defaultTitle = useDefaultWelcomeTitle(communities, scope);
+  return <WelcomeCard title={title ?? defaultTitle}>{children}</WelcomeCard>;
 }

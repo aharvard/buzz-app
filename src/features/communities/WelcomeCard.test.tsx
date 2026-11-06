@@ -76,7 +76,7 @@ it("opens an identity link's profile from the timeline without notifying", async
   expect(onOpenLink).toHaveBeenCalledWith(target);
 });
 
-it("shows an identity link as an inert chip in a preview", () => {
+it("shows an identity link as an inert chip when not interactive, as the editor's chips do", () => {
   const target = profileTarget(person);
   const view = render(
     welcome(`Ask [@Ana](${target}) anything.`, { interactive: false }),
@@ -119,4 +119,47 @@ it("titles the default with the community the viewer saved, else a custom title"
     </CommunityWelcomeCard>,
   );
   expect(screen.getByRole("region", { name: "Welcome" })).toBeVisible();
+});
+
+it("welcomes a community known only by its address without naming it", () => {
+  const reader = (membership: Record<string, string>) =>
+    ({
+      snapshot: () => ({
+        memberships: [{ id: "https://primary.example", ...membership }],
+      }),
+      subscribe: () => () => {},
+    }) as unknown as CommunityReader;
+  const { rerender } = render(
+    <CommunityWelcomeCard
+      communities={reader({ name: "primary.example" })}
+      scope={scope}
+    >
+      Body
+    </CommunityWelcomeCard>,
+  );
+  // Joined without a published name, the membership holds only the host.
+  expect(screen.getByRole("region", { name: "Welcome" })).toBeVisible();
+  rerender(
+    <CommunityWelcomeCard
+      communities={reader({
+        name: "primary.example",
+        publishedName: "Primary",
+      })}
+      scope={scope}
+    >
+      Body
+    </CommunityWelcomeCard>,
+  );
+  expect(
+    screen.getByRole("region", { name: "Welcome to Primary" }),
+  ).toBeVisible();
+  rerender(
+    <CommunityWelcomeCard
+      communities={reader({ name: "primary.example", localName: "Home" })}
+      scope={scope}
+    >
+      Body
+    </CommunityWelcomeCard>,
+  );
+  expect(screen.getByRole("region", { name: "Welcome to Home" })).toBeVisible();
 });

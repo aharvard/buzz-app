@@ -61,8 +61,11 @@ it("registers the Membership card under the key the community rail opens", async
   });
   const data = relay();
   root.provide("relay", data);
-  // The Welcome card's preview renders through the conversation renderers.
-  root.provide("conversation", {} as never);
+  // The Welcome card names the community in its default title.
+  root.provide("communityReader", {
+    snapshot: () => ({ memberships: [] }),
+    subscribe: () => () => {},
+  } as unknown as CommunityReader);
   const access = createAdminAccess(
     data,
     {
@@ -122,7 +125,10 @@ it.each([
     });
     const data = relay(role);
     root.provide("relay", data);
-    root.provide("conversation", {} as never);
+    root.provide("communityReader", {
+      snapshot: () => ({ memberships: [] }),
+      subscribe: () => () => {},
+    } as unknown as CommunityReader);
     const access = createAdminAccess(
       data,
       {

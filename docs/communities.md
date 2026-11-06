@@ -156,8 +156,10 @@ with a strong metadata read. If nothing is designated yet, the channel field
 starts empty and must be chosen before Save. The picker lists public, unarchived
 stream channels.
 
-The title starts with the custom title or the default, "Welcome to" and the
-viewer's own name for the community: 1–120 characters on one line. The message starts with the
+The title starts with the custom title or the default: "Welcome to" and the
+community's configured name, the one this viewer gave it or the relay's
+published one, or just "Welcome" when the community is known only by its
+address. A title is 1–120 characters on one line. The message starts with the
 custom text or the default. It is edited in the message composer's editor, with
 its formatting toolbar, shortcuts and link dialog; Enter adds a line break, and
 there are no mentions, attachments, GIFs or cards. The message is stored as
@@ -171,18 +173,23 @@ the start or end of the message on each side, outside Markdown code and links.
 Anywhere else, such as after `[@Name](`, an unclosed backtick or a URL being
 typed, it stays as pasted.
 Channel or message links pasted from **Copy link** show as chips in the editor,
-and as linked names in the preview, and open in place for members. It takes
+and as linked names in the card, where they open in place for members. It takes
 1–4,000 characters, with no control characters other than line breaks and tabs.
-Both are checked against the relay's rules as the admin types. Line endings are
+Both are checked against the relay's rules as the admin types: text made only
+of spaces and invisible characters, such as zero-width spaces or the Braille
+blank, counts as empty, and hidden text-direction marks, embeddings, overrides
+and isolates are refused anywhere. Line endings are
 normalized and both are trimmed before sending. A message matching the default
 is saved as the default rather than as custom text. The default title depends on
 who is looking, so it is never inferred: an edited title is saved as written, an
 untouched one stays as published, and **Restore defaults** resets both in the
-draft and saves the default title. A preview shows the card as members will see it, with
-its links inert. Save sends the whole state and confirms it as described in
-[channel lifecycle](channels.md#channel-lifecycle). A relay refusal is shown with
-its reason and the draft is kept. A save the relay has not shown yet keeps the
-draft with Save disabled until **Check again** reads the relay's state. Archive,
+draft and saves the default title. Nothing is published until **Save**. Save
+sends the welcome's whole state if it changed, then each changed starter flag
+in turn, and confirms each step as described in
+[channel lifecycle](channels.md#channel-lifecycle); one "Welcome saved" notice
+follows a complete save. A relay refusal of the welcome is shown with its reason
+and the draft is kept. A step the relay has not shown yet keeps the draft with
+Save disabled until **Check again** reads the relay's state for that step. Archive,
 Delete, Make private and expiry are not disabled for the welcome channel yet; the
 relay refuses them, and that refusal is shown like any other lifecycle error.
 
@@ -190,11 +197,15 @@ relay refuses them, and that refusal is shown like any other lifecycle error.
 however many channels the community has. The welcome channel comes first, fixed,
 because new members always join it; its own flag is left unchanged. Each other
 starter channel has **Remove**, and **Add a channel** searches the community's
-open, unarchived stream channels that are not starters yet. Both take effect at
-once: an added channel is listed while the relay confirms it, and a removed one
-stays until it does. A refusal or a prompt to try again shows beside a removed
-channel's row, or on the search for an added one. One change runs at a time, and
-Save waits for it. Owners and admins can add a channel they are not in. Adding a
+open, unarchived stream channels that are not starters yet. Both edit the draft,
+and Save and Cancel appear for starter changes alone: an added channel is listed
+as not saved yet, and a removed one leaves the list until Cancel brings it back.
+Save stops at a refused step. The steps before it are published, the refused
+change returns to its published state with the relay's reason beside its row
+for a removal or on the search for an addition, and the changes after it stay in
+the draft. A confirmed change shows at once wherever the directory or roster
+lists the channel, without waiting for the next directory read. Owners and
+admins can add a channel they are not in. Adding a
 channel applies to people who join from then on, not current members; in an
 open community it also adds people who come back and have never been in that
 channel.

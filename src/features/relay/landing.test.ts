@@ -72,13 +72,17 @@ describe("welcome text", () => {
     expect(welcomeTextProblem("😀".repeat(4000))).toBeUndefined();
     expect(welcomeTextProblem("a".repeat(4001))).toBe("long");
     expect(welcomeTextProblem(" \n ")).toBe("empty");
-    // U+FEFF is not Unicode White_Space: the relay keeps it, so both hosts do.
-    expect(welcomeTextProblem("\uFEFF")).toBeUndefined();
     expect(welcomeTextProblem("\u2003\u3000")).toBe("empty");
     // Markdown needs line breaks and tabs for structure and code.
     expect(welcomeTextProblem("line\nbreak")).toBeUndefined();
     expect(welcomeTextProblem("- item\n\t- nested")).toBeUndefined();
-    for (const text of ["cr\r", "nul\u0000", "vt\u000b", "del\u007f", "c1\u0085"])
+    for (const text of [
+      "cr\r",
+      "nul\u0000",
+      "vt\u000b",
+      "del\u007f",
+      "c1\u0085",
+    ])
       expect(welcomeTextProblem(text)).toBe("control");
   });
 
@@ -95,7 +99,6 @@ describe("welcome title", () => {
     expect(welcomeTitleProblem("😀".repeat(120))).toBeUndefined();
     expect(welcomeTitleProblem("a".repeat(121))).toBe("long");
     expect(welcomeTitleProblem(" ")).toBe("empty");
-    expect(welcomeTitleProblem("\uFEFF")).toBeUndefined();
     for (const text of [
       "two\nlines",
       "tab\t",
@@ -114,6 +117,54 @@ describe("welcome title", () => {
     expect(validWelcomeTitleCommand("")).toBe(true);
     expect(validWelcomeTitleCommand("Hello")).toBe(true);
     expect(validWelcomeTitleCommand(" ")).toBe(false);
+  });
+});
+
+describe("welcome blank and direction rules", () => {
+  it("counts text of only whitespace and invisible characters as blank, as the relay does", () => {
+    for (const text of [
+      "\u200B",
+      "\u2800",
+      " \u200B ",
+      "\uFEFF",
+      "\u00AD\u034F\u115F\u1160\u3164\uFFA0",
+      "\u180B\u2060\u206F\uFE00\uFE0F\uFFF9",
+      "\u{1D173}\u{E0000}\u{E007F}",
+    ]) {
+      expect(welcomeTextProblem(text)).toBe("empty");
+      expect(welcomeTitleProblem(text)).toBe("empty");
+    }
+    // Blank is checked first, so only direction marks are still empty.
+    expect(welcomeTextProblem("\u200E\u200F")).toBe("empty");
+    // Invisible characters beside visible text are kept.
+    expect(welcomeTextProblem("Hello\u200Bworld")).toBeUndefined();
+    expect(welcomeTitleProblem("Hello\u200Bworld")).toBeUndefined();
+  });
+
+  it("refuses text-direction characters anywhere, before the length", () => {
+    for (const mark of [
+      "\u061C",
+      "\u200E",
+      "\u200F",
+      "\u202A",
+      "\u202E",
+      "\u2066",
+      "\u2069",
+    ]) {
+      expect(welcomeTextProblem(`${mark}abc`)).toBe("bidi");
+      expect(welcomeTitleProblem(`a${mark}bc`)).toBe("bidi");
+    }
+    expect(welcomeTextProblem(`\u202E${"a".repeat(4001)}`)).toBe("bidi");
+    expect(validWelcomeCommand("\u202Eabc")).toBe(false);
+    expect(validWelcomeTitleCommand("\u202Eabc")).toBe(false);
+    // A published value the relay would refuse shows the default.
+    expect(
+      landingTags([
+        ["landing"],
+        ["welcome", "\u202Eabc"],
+        ["welcome_title", "\u200B"],
+      ]),
+    ).toEqual({ landing: true });
   });
 });
 

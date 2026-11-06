@@ -24,5 +24,7 @@ channels.
 
 Below that, **Also add new members to** lists the starter channels, which new
 members join too: **Add a channel** searches other open channels, and **Remove**
-takes one off. Each change applies at once, to people who join afterwards. The
-list also appears on relays without a welcome channel.
+takes one off. These edit the same draft as the welcome: **Save** publishes
+the welcome first, then each starter change, and **Cancel** discards them.
+Saved changes apply to people who join afterwards. The list, with its Save,
+also appears on relays without a welcome channel.
