@@ -571,7 +571,7 @@ confirmed Delete/Leave use the existing access-loss purge. Commands use narrow
 development-broker routes or the packaged native `relay_channel_sign` and
 `relay_channel_publish` commands, never the message outbox or automatic replay.
 The community **Welcome** settings card ([communities](communities.md#welcome-channel))
-uses the same route for its starter-channel switches, two commands without a
+uses the same route to add and remove starter channels, two commands without a
 confirmation dialog, `auto-join-on` and `auto-join-off`, each a `9002` with
 `auto_join=true|false`. The lifecycle owner requires fresh relay metadata for an
 active public stream channel before signing, whether or not the viewer is in it
@@ -600,13 +600,13 @@ still abort its signal. A rejected publication or definitive confirmation-read
 failure still fails the command; an aborted read alone never confirms it. These signals
 do not forcibly interrupt an in-flight native publication IPC.
 Both hosts admit only the exact two-tag `9002` shape with `archived=true` (Archive),
-`archived=false` (Unarchive) or `auto_join=true|false` (a starter switch), and the
+`archived=false` (Unarchive) or `auto_join=true|false` (adding or removing a starter channel), and the
 four-tag welcome shape: `landing=true`, a `welcome` of 1–4,000 characters (no
 control characters except line breaks and tabs) or empty, and a `welcome_title`
 of 1–120 characters (no control characters or line separators) or empty; other values,
 extra tags, cross-route commands and
 altered or foreign signatures are rejected. Hosts without this capability display
-an unavailable notice. Native Unarchive, the starter switches and the welcome
+an unavailable notice. Native Unarchive, starter changes and the welcome
 command require rebuilding/restarting the desktop
 binary; updating the frontend alone does not update the Rust validator. Rust
 validator and production-IPC tests cover both values, but do not establish an

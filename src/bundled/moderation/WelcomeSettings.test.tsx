@@ -16,6 +16,9 @@ import {
   type CommunityInfo,
 } from "../../features/communities/api";
 import { DEFAULT_WELCOME_MESSAGE } from "../../features/communities/WelcomeCard";
+import type { ComposerInputElement } from "../../features/messages/composer-dom";
+import { composerDOMFixture } from "../../features/messages/composer-testing";
+import { profileTarget } from "../../features/profiles/target";
 import {
   ChannelLifecycleUnconfirmed,
   type ChannelLanding,
@@ -33,6 +36,8 @@ vi.mock("../../features/communities/api", async (importOriginal) => ({
   communityRequest: vi.fn(),
 }));
 
+composerDOMFixture();
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -41,6 +46,7 @@ afterEach(() => {
 const owner = "0".repeat(64);
 const lobby = "11111111-1111-4111-8111-111111111111";
 const square = "22222222-2222-4222-8222-222222222222";
+const random = "55555555-5555-4555-8555-555555555555";
 const rows = [
   { id: lobby, name: "Lobby", channelType: "stream" as const },
   {
@@ -50,7 +56,7 @@ const rows = [
     autoJoin: true as const,
   },
   {
-    id: "55555555-5555-4555-8555-555555555555",
+    id: random,
     name: "Random",
     channelType: "stream" as const,
   },
@@ -154,7 +160,14 @@ function setup({
 const channel = () => screen.getByRole("combobox", { name: "Welcome channel" });
 const titleField = () => screen.getByRole("textbox", { name: "Title" });
 const messageField = () => screen.getByRole("textbox", { name: "Message" });
-const starter = (name: string) => screen.getByRole("switch", { name });
+const starters = () =>
+  screen.getByRole("region", { name: "Also add new members to" });
+const removeLabel = (name: string) => `Remove #${name} from starter channels`;
+const remove = (name: string) =>
+  screen.getByRole("button", { name: removeLabel(name) });
+const removable = (name: string) =>
+  screen.queryByRole("button", { name: removeLabel(name) });
+const addField = () => screen.getByRole("combobox", { name: "Add a channel" });
 const welcome = (message: string, title = "") => ({ message, title });
 
 it("opens on the designated channel, its title and its message, read fresh", async () => {
@@ -195,8 +208,84 @@ it("opens on a custom title and renders the message as Markdown in the preview",
   const preview = screen.getByRole("region", { name: "Hello, newcomer" });
   expect(preview.querySelector("strong")).toHaveTextContent("hi");
   expect(
-    screen.getByText(/Markdown works\. To link a channel, use Copy link/),
+    screen.getByText(
+      /Format with the toolbar or Markdown\. To link a channel, use Copy link/,
+    ),
   ).toBeVisible();
+});
+
+it("writes toolbar formatting and a pasted channel link into the message as Markdown", async () => {
+  const { setLanding, user } = setup();
+  await waitFor(() => expect(messageField()).toHaveValue("Hi there"));
+  const input = messageField();
+  fireEvent.change(input, { target: { value: "" } });
+  // A channel's Copy link writes the bare link.
+  const link = `buzz://channel/${square}`;
+  act(() => {
+    input.focus();
+    document.dispatchEvent(new Event("selectionchange"));
+    fireEvent.paste(input, {
+      clipboardData: {
+        items: [],
+        getData: (type: string) => (type === "text/plain" ? link : ""),
+      },
+    });
+  });
+  // A pointer click leaves focus and the caret in the editor.
+  await user.click(screen.getByRole("button", { name: "Toggle formatting" }));
+  await user.click(screen.getByRole("button", { name: "Bold" }));
+  expect(input).toHaveFocus();
+  await user.keyboard("Join");
+  expect(input.querySelector("strong")).toHaveTextContent("Join");
+  const preview = screen.getByRole("region", { name: "Welcome to Primary" });
+  expect(preview.querySelector("strong")).toHaveTextContent("Join");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(setLanding).toHaveBeenCalledWith(
+      lobby,
+      welcome(`${link} **Join**`),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    ),
+  );
+});
+
+it("opens published Markdown as its source and sends it back unchanged", async () => {
+  const markdown = [
+    "**Welcome** to _Primary_",
+    "",
+    `- Say hi in [#Town square](buzz://channel/${square})`,
+    `- Ask [@Ada](${profileTarget("a".repeat(64))}) anything`,
+  ].join("\n");
+  const { setLanding, user } = setup({
+    landing: { landing: true, welcome: markdown, name: "Lobby" },
+  });
+  await waitFor(() => expect(messageField()).toHaveValue(markdown));
+  const preview = screen.getByRole("region", { name: "Welcome to Primary" });
+  expect(preview.querySelector("strong")).toHaveTextContent("Welcome");
+  expect(preview.querySelector("em")).toHaveTextContent("Primary");
+  expect(preview.querySelectorAll("li")).toHaveLength(2);
+  expect(preview.querySelector("[data-profile-target]")).toHaveTextContent(
+    "Ada",
+  );
+  // Nothing changed yet, so there is nothing to save.
+  expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  const input = messageField() as ComposerInputElement;
+  act(() => {
+    input.focus();
+    input.setSelectionRange(markdown.length, markdown.length);
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  await user.keyboard("!");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(setLanding).toHaveBeenCalledWith(
+      lobby,
+      welcome(`${markdown}!`),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    ),
+  );
 });
 
 it("moves the welcome to another public channel with its full state", async () => {
@@ -230,7 +319,9 @@ it("requires a channel when none is designated and sends the defaults as empty",
   const { readLanding, setLanding, user } = setup({
     info: { policy: null, landingChannels: true },
   });
-  await waitFor(() => expect(messageField()).toHaveValue(DEFAULT_WELCOME_MESSAGE));
+  await waitFor(() =>
+    expect(messageField()).toHaveValue(DEFAULT_WELCOME_MESSAGE),
+  );
   expect(channel()).toHaveValue("");
   expect(readLanding).not.toHaveBeenCalled();
   fireEvent.change(messageField(), {
@@ -279,10 +370,14 @@ it("blocks messages the relay would refuse and restores the defaults in the draf
   ).toBeVisible();
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   fireEvent.change(messageField(), { target: { value: "a".repeat(4001) } });
-  expect(screen.getByText("Shorten the message to 4,000 characters.")).toBeVisible();
+  expect(
+    screen.getByText("Shorten the message to 4,000 characters."),
+  ).toBeVisible();
   fireEvent.change(messageField(), { target: { value: "a\u0007b" } });
   expect(
-    screen.getByText("Remove control characters. Line breaks and tabs are fine."),
+    screen.getByText(
+      "Remove control characters. Line breaks and tabs are fine.",
+    ),
   ).toBeVisible();
   // Unicode scalar values, not UTF-16 units, as the relay counts; tabs pass.
   fireEvent.change(messageField(), {
@@ -294,9 +389,7 @@ it("blocks messages the relay would refuse and restores the defaults in the draf
   await user.click(screen.getByRole("button", { name: "Restore defaults" }));
   expect(messageField()).toHaveValue(DEFAULT_WELCOME_MESSAGE);
   expect(titleField()).toHaveValue("Welcome to Primary");
-  expect(
-    screen.queryByRole("button", { name: "Restore defaults" }),
-  ).toBeNull();
+  expect(screen.queryByRole("button", { name: "Restore defaults" })).toBeNull();
   expect(setLanding).not.toHaveBeenCalled();
 });
 
@@ -309,7 +402,9 @@ it("blocks titles the relay would refuse", async () => {
   ).toBeVisible();
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   fireEvent.change(titleField(), { target: { value: "a".repeat(121) } });
-  expect(screen.getByText("Shorten the title to 120 characters.")).toBeVisible();
+  expect(
+    screen.getByText("Shorten the title to 120 characters."),
+  ).toBeVisible();
   fireEvent.change(titleField(), { target: { value: "a\tb" } });
   expect(screen.getByText("Use one line of text for the title.")).toBeVisible();
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
@@ -515,10 +610,10 @@ it("offers a retry when the current welcome cannot be read", async () => {
   await waitFor(() => expect(channel()).toHaveValue("Lobby"));
 });
 
-it("lists the other open channels as starters, the welcome channel fixed first", async () => {
-  setup({
+it("lists only the starter channels, the welcome channel fixed first", async () => {
+  const { user } = setup({
     joined: [
-      // Joined channels the directory leaves out are listed; others are not.
+      // Joined channels the directory leaves out are eligible; others are not.
       {
         id: "66666666-6666-4666-8666-666666666666",
         name: "Unlisted",
@@ -536,27 +631,38 @@ it("lists the other open channels as starters, the welcome channel fixed first",
     ],
   });
   await waitFor(() => expect(channel()).toHaveValue("Lobby"));
-  const group = screen.getByRole("region", { name: "Also add new members to" });
+  const group = starters();
+  // Each flagged channel is listed and removable; the welcome is fixed.
   expect(
     within(group)
-      .getAllByRole("switch")
-      .map((control) => control.getAttribute("aria-label")),
-  ).toEqual(["Lobby", "Random", "Town square", "Unlisted"]);
-  const fixed = starter("Lobby");
-  expect(fixed).toBeChecked();
-  expect(fixed).toHaveAttribute("aria-disabled", "true");
-  expect(fixed).toHaveAccessibleDescription("Welcome channel · always joined");
-  expect(starter("Random")).not.toBeChecked();
-  expect(starter("Town square")).toBeChecked();
-  expect(starter("Unlisted")).toBeChecked();
-  expect(starter("Random")).not.toHaveAttribute("aria-disabled");
-  expect(within(group).queryByRole("switch", { name: "Staff" })).toBeNull();
+      .getAllByRole("button", { name: /^Remove / })
+      .map((button) => button.getAttribute("aria-label")),
+  ).toEqual([removeLabel("Town square"), removeLabel("Unlisted")]);
+  const fixed = within(group).getByText("Lobby");
+  expect(
+    within(group).getByText("Welcome channel · always joined"),
+  ).toBeVisible();
+  expect(
+    fixed.compareDocumentPosition(remove("Town square")) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(removable("Lobby")).toBeNull();
+  // Channels that are not starters have no row, however many there are.
+  expect(within(group).queryByText("Random")).toBeNull();
+  expect(within(group).queryByText("Staff")).toBeNull();
   expect(group).toHaveTextContent(
-    "Turning a channel on adds people who join from now on",
+    "A channel you add applies to people who join from now on",
   );
+  // The search offers the rest: neither the welcome channel nor a starter.
+  await user.click(
+    screen.getByRole("button", { name: "Browse channels to add" }),
+  );
+  const options = await screen.findAllByRole("option");
+  expect(options.map((option) => option.textContent)).toEqual(["Random"]);
+  expect(options[0]?.querySelector("svg")).not.toBeNull();
 });
 
-it("sets a starter's flag through the channel lifecycle and holds other changes until it settles", async () => {
+it("adds a starter from the search through the channel lifecycle, listed while the relay confirms", async () => {
   const { run, user } = setup();
   await waitFor(() => expect(channel()).toHaveValue("Lobby"));
   fireEvent.change(messageField(), { target: { value: "Say hello" } });
@@ -567,34 +673,75 @@ it("sets a starter's flag through the channel lifecycle and holds other changes 
         settle = resolve;
       }),
   );
-  await user.click(starter("Random"));
+  await user.type(addField(), "ran");
+  await user.click(await screen.findByRole("option", { name: "Random" }));
   try {
     expect(run).toHaveBeenCalledWith(
       "auto-join-on",
-      "55555555-5555-4555-8555-555555555555",
+      random,
       expect.any(AbortSignal),
       expect.any(Function),
     );
-    // One channel command at a time, and the welcome waits for it.
-    expect(starter("Random")).not.toBeChecked();
-    expect(starter("Random")).toHaveAttribute("aria-busy", "true");
-    expect(starter("Town square")).toHaveAttribute("aria-disabled", "true");
+    expect(addField()).toHaveValue("");
+    // The new row shows at once; one channel command at a time, and the
+    // welcome waits for it.
+    expect(within(starters()).getByText("Adding…")).toBeVisible();
+    expect(remove("Random")).toBeDisabled();
+    expect(remove("Town square")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   } finally {
     await act(async () => settle());
   }
-  // The confirmed flag shows; the directory row is not yet republished.
-  expect(starter("Random")).toBeChecked();
-  expect(starter("Town square")).not.toHaveAttribute("aria-disabled");
+  // The confirmed flag keeps the row; the directory is not yet republished.
+  expect(within(starters()).queryByText("Adding…")).toBeNull();
+  expect(remove("Random")).toBeEnabled();
+  expect(remove("Town square")).toBeEnabled();
   expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
-  await user.click(starter("Town square"));
-  expect(run).toHaveBeenLastCalledWith(
-    "auto-join-off",
-    square,
-    expect.any(AbortSignal),
-    expect.any(Function),
+  await user.click(
+    screen.getByRole("button", { name: "Browse channels to add" }),
   );
-  await waitFor(() => expect(starter("Town square")).not.toBeChecked());
+  expect(await screen.findByText("No matching public channels.")).toBeVisible();
+});
+
+it("removes a starter through the channel lifecycle, keeping its row until the relay confirms", async () => {
+  const { run, user } = setup();
+  await waitFor(() => expect(channel()).toHaveValue("Lobby"));
+  fireEvent.change(messageField(), { target: { value: "Say hello" } });
+  let settle!: () => void;
+  run.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        settle = resolve;
+      }),
+  );
+  await user.click(remove("Town square"));
+  try {
+    expect(run).toHaveBeenCalledWith(
+      "auto-join-off",
+      square,
+      expect.any(AbortSignal),
+      expect.any(Function),
+    );
+    expect(remove("Town square")).toHaveAttribute("aria-busy", "true");
+    expect(remove("Town square")).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  } finally {
+    await act(async () => settle());
+  }
+  // The row leaves with its button, so focus moves to the search.
+  expect(removable("Town square")).toBeNull();
+  expect(addField()).toHaveFocus();
+  expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+  expect(within(starters()).getByText("No other channels yet")).toBeVisible();
+  // Removed, it can be added again.
+  await user.click(
+    screen.getByRole("button", { name: "Browse channels to add" }),
+  );
+  const options = await screen.findAllByRole("option");
+  expect(options.map((option) => option.textContent)).toEqual([
+    "Random",
+    "Town square",
+  ]);
 });
 
 it("follows the roster for a joined channel instead of its own confirmed state", async () => {
@@ -606,53 +753,65 @@ it("follows the roster for a joined channel instead of its own confirmed state",
   };
   const { run, setJoined, user } = setup({ joined: [unlisted] });
   await waitFor(() => expect(channel()).toHaveValue("Lobby"));
-  await user.click(starter("Unlisted"));
-  await waitFor(() => expect(run).toHaveBeenCalledOnce());
-  // The readback republishes the joined channel; that is what the row shows.
-  await waitFor(() =>
-    expect(starter("Unlisted")).not.toHaveAttribute("aria-busy"),
-  );
-  expect(starter("Unlisted")).not.toBeChecked();
+  await user.type(addField(), "unl");
+  await user.click(await screen.findByRole("option", { name: "Unlisted" }));
+  expect(run).toHaveBeenCalledOnce();
+  // Every other control is held until the command settles.
+  await waitFor(() => expect(remove("Town square")).toBeEnabled());
+  // The readback republishes the joined channel; that is what the list shows.
+  expect(removable("Unlisted")).toBeNull();
   setJoined([{ ...unlisted, autoJoin: true }]);
-  expect(starter("Unlisted")).toBeChecked();
+  expect(remove("Unlisted")).toBeVisible();
   // Another admin's later change shows too; nothing kept here overrides it.
   setJoined([unlisted]);
-  expect(starter("Unlisted")).not.toBeChecked();
+  expect(removable("Unlisted")).toBeNull();
 });
 
-it("explains a starter change that failed beside its row", async () => {
+it("explains a failed removal beside its row and a failed addition on the search", async () => {
   const { run, user } = setup();
   await waitFor(() => expect(channel()).toHaveValue("Lobby"));
   run.mockRejectedValueOnce(new PublishRejected("rejected"));
-  await user.click(starter("Random"));
+  await user.click(remove("Town square"));
   const alert = await screen.findByRole("alert");
   expect(alert).toHaveTextContent(
     "Only community owners and admins can change this.",
   );
-  // The message follows its row, before the next one.
+  // The message follows its row, before the search.
   expect(
-    starter("Random").compareDocumentPosition(alert) &
+    remove("Town square").compareDocumentPosition(alert) &
       Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
   expect(
-    alert.compareDocumentPosition(starter("Town square")) &
+    alert.compareDocumentPosition(addField()) &
       Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
-  expect(starter("Random")).not.toBeChecked();
-  // Repeating the same value is how an unconfirmed change is checked.
+  // Repeating the same change is how an unconfirmed one is checked.
   run.mockRejectedValueOnce(
     new ChannelLifecycleUnconfirmed(new Error("timeout")),
   );
-  await user.click(starter("Random"));
+  await user.click(remove("Town square"));
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Saved, but not confirmed yet. Try again to check.",
   );
-  await user.click(starter("Random"));
-  await waitFor(() => expect(starter("Random")).toBeChecked());
+  await user.click(remove("Town square"));
+  await waitFor(() => expect(removable("Town square")).toBeNull());
+  expect(screen.queryByRole("alert")).toBeNull();
+  // A failed addition has no row, so the search explains it.
+  run.mockRejectedValueOnce(new PublishRejected("rejected"));
+  await user.type(addField(), "ran");
+  await user.click(await screen.findByRole("option", { name: "Random" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "#Random: Only community owners and admins can change this.",
+  );
+  expect(removable("Random")).toBeNull();
+  // Adding it again clears the reason.
+  await user.type(addField(), "ran");
+  await user.click(await screen.findByRole("option", { name: "Random" }));
+  await waitFor(() => expect(remove("Random")).toBeEnabled());
   expect(screen.queryByRole("alert")).toBeNull();
 });
 
-it("holds the starter switches while the welcome saves", async () => {
+it("holds starter changes while the welcome saves", async () => {
   const { setLanding, user } = setup();
   let settle!: () => void;
   setLanding.mockImplementationOnce(
@@ -665,11 +824,17 @@ it("holds the starter switches while the welcome saves", async () => {
   fireEvent.change(messageField(), { target: { value: "Say hello" } });
   await user.click(screen.getByRole("button", { name: "Save" }));
   try {
-    expect(starter("Random")).toHaveAttribute("aria-disabled", "true");
+    expect(remove("Town square")).toBeDisabled();
+    await user.click(
+      screen.getByRole("button", { name: "Browse channels to add" }),
+    );
+    expect(
+      await screen.findByRole("option", { name: "Random" }),
+    ).toHaveAttribute("aria-disabled", "true");
   } finally {
     await act(async () => settle());
   }
-  expect(starter("Random")).not.toHaveAttribute("aria-disabled");
+  expect(remove("Town square")).toBeEnabled();
 });
 
 it("still lists starter channels when the relay has no welcome channel", async () => {
@@ -681,8 +846,8 @@ it("still lists starter channels when the relay has no welcome channel", async (
       "This community’s relay doesn’t support a welcome channel.",
     ),
   ).toBeVisible();
-  await waitFor(() => expect(starter("Random")).toBeVisible());
-  expect(starter("Town square")).toBeChecked();
+  await waitFor(() => expect(remove("Town square")).toBeVisible());
+  expect(addField()).toBeEnabled();
   expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
   expect(screen.queryByText("Welcome channel · always joined")).toBeNull();
   expect(readLanding).not.toHaveBeenCalled();

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
+import type { ComposerInputElement } from "../../features/messages/composer-dom";
 import {
   communityRequest,
   type CommunityInfo,
@@ -40,10 +41,10 @@ import { Field } from "../../shared/design-system/ui/Field";
 import { Header, InlineHeader } from "../../shared/design-system/ui/Header";
 import { Input } from "../../shared/design-system/ui/Input";
 import { LoadingRegion } from "../../shared/design-system/ui/LoadingRegion";
+import { PreferenceRow } from "../../shared/design-system/ui/PreferenceRow";
 import { SettingsGroup } from "../../shared/design-system/ui/SettingsGroup";
-import { SwitchPreferenceRow } from "../../shared/design-system/ui/SwitchPreferenceRow";
-import { Textarea } from "../../shared/design-system/ui/Textarea";
 import { ToastNotice } from "../../shared/design-system/ui/Toast";
+import { WelcomeMessageEditor } from "./WelcomeMessageEditor";
 import styles from "./WelcomeSettings.module.css";
 
 const message = (reason: unknown) =>
@@ -164,6 +165,18 @@ type Draft = Readonly<{
   title?: string | null;
 }>;
 
+/** The options whose names match `needle`, best first; all for no needle. */
+function ranked(options: readonly Option[], needle: string) {
+  if (!needle) return options;
+  return options
+    .flatMap((option) => {
+      const rank = matchName(option.name, needle)?.rank;
+      return rank === undefined ? [] : [{ option, rank }];
+    })
+    .sort((a, b) => a.rank - b.rank)
+    .map(({ option }) => option);
+}
+
 /** Open, active stream channels: the directory's, joined ones it may leave
  * out (such as unlisted ones), and the current welcome channel. The joined
  * list is live, so its flags win. */
@@ -237,7 +250,7 @@ function WelcomeEditor({
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const checkButton = useRef<HTMLButtonElement>(null);
-  const messageInput = useRef<HTMLTextAreaElement>(null);
+  const messageInput = useRef<ComposerInputElement>(null);
   const mounted = useRef(true);
   const saveController = useRef<AbortController>(undefined);
   useEffect(() => {
@@ -344,19 +357,7 @@ function WelcomeEditor({
   const selected = options.find((option) => option.id === channelId) ?? null;
   // The input shows the chosen name; browsing from there lists every channel.
   const needle = typed === selected?.name ? "" : typed.trim().toLowerCase();
-  const matches = useMemo(
-    () =>
-      needle
-        ? options
-            .flatMap((option) => {
-              const rank = matchName(option.name, needle)?.rank;
-              return rank === undefined ? [] : [{ option, rank }];
-            })
-            .sort((a, b) => a.rank - b.rank)
-            .map(({ option }) => option)
-        : options,
-    [options, needle],
-  );
+  const matches = useMemo(() => ranked(options, needle), [options, needle]);
   const edit = (patch: Partial<Draft>) => {
     setDraft({
       ...(channelId ? { channelId } : {}),
@@ -379,7 +380,6 @@ function WelcomeEditor({
       lifecycle={lifecycle}
       active={() => mounted.current && active()}
       saving={saving}
-      pending={toggling}
       onPendingChange={setToggling}
       loading={directory.loading}
       failed={!!directory.error}
@@ -540,12 +540,13 @@ function WelcomeEditor({
                   onChange={(event) => edit({ title: event.target.value })}
                 />
               </Field>
-              <Field
+              <WelcomeMessageEditor
+                ref={messageInput}
                 label="Message"
                 description={
                   <>
-                    Markdown works. To link a channel, use Copy link in its
-                    menu and paste the link here.{" "}
+                    Format with the toolbar or Markdown. To link a channel, use
+                    Copy link in its menu and paste the link here.{" "}
                     <span>
                       {[...normalized].length.toLocaleString("en-US")} of {MAX}{" "}
                       characters
@@ -553,15 +554,13 @@ function WelcomeEditor({
                   </>
                 }
                 error={problem && problems[problem]}
-              >
-                <Textarea
-                  ref={messageInput}
-                  rows={6}
-                  disabled={disabled}
-                  value={text}
-                  onChange={(event) => edit({ text: event.target.value })}
-                />
-              </Field>
+                value={text}
+                onChange={(body) => edit({ text: body })}
+                disabled={disabled}
+                session={session}
+                scope={scope}
+                channelId={channelId ?? ""}
+              />
               {(normalized !== DEFAULT_WELCOME_MESSAGE || command.title) && (
                 <div>
                   <Button
@@ -665,15 +664,20 @@ function WelcomeEditor({
   );
 }
 
-type RowError = Readonly<{ enabled: boolean; message: string }>;
+/** A starter's flag as this card knows it: a joined channel's follows the
+ * roster; another's, the change confirmed here until the directory shows it. */
+const starter = (channel: Option, confirmed: ReadonlyMap<string, boolean>) =>
+  channel.joined
+    ? channel.autoJoin
+    : (confirmed.get(channel.id) ?? channel.autoJoin);
 
 /**
- * Immediate preferences: each switch is the relay's `auto_join` flag for one
- * channel, confirmed by a signed readback before it shows. A joined channel's
- * row follows the roster. Community owners and admins may also flag channels
- * they have not joined; the card keeps such a confirmed state itself until the
- * directory shows it. The welcome channel is always joined first, so its row
- * is fixed and its own flag is left as it is.
+ * Connected objects: the channels whose relay `auto_join` flag is on, each
+ * removable at once, and a search that adds another. Only flagged channels are
+ * listed, so the list stays short however many channels the community has.
+ * Each change shows once a signed readback confirms it. Community owners and
+ * admins may also flag channels they have not joined. The welcome channel is
+ * always joined first, so its row is fixed and its own flag is left as it is.
  */
 function StarterChannels({
   channels,
@@ -681,7 +685,6 @@ function StarterChannels({
   lifecycle,
   active,
   saving,
-  pending,
   onPendingChange,
   loading,
   failed,
@@ -692,7 +695,6 @@ function StarterChannels({
   lifecycle: ChannelLifecycleCapability;
   active(): boolean;
   saving: boolean;
-  pending: string | undefined;
   onPendingChange(id: string | undefined): void;
   loading: boolean;
   failed: boolean;
@@ -700,12 +702,22 @@ function StarterChannels({
   retry?: (() => void) | undefined;
 }) {
   const heading = useId();
+  const addInput = useRef<HTMLInputElement>(null);
+  const [typed, setTyped] = useState("");
+  // The change the relay is confirming. The session runs one channel command
+  // at a time, so Save waits for it and it waits for Save.
+  const [change, setChange] =
+    useState<Readonly<{ id: string; enabled: boolean }>>();
   const [confirmed, setConfirmed] = useState<ReadonlyMap<string, boolean>>(
     () => new Map(),
   );
-  const [errors, setErrors] = useState<ReadonlyMap<string, RowError>>(
+  // Failed removals, beside their rows; a failed addition has no row, so its
+  // reason shows on the add control.
+  const [errors, setErrors] = useState<ReadonlyMap<string, string>>(
     () => new Map(),
   );
+  const [addError, setAddError] =
+    useState<Readonly<{ id: string; message: string }>>();
   const operation = useRef<AbortController>(undefined);
   useEffect(() => () => operation.current?.abort(), []);
   // A kept state is dropped once the row agrees, or turns out to be joined.
@@ -720,15 +732,37 @@ function StarterChannels({
       return next ?? current;
     });
   }, [channels]);
-  const others = channels.filter(
-    (channel) => channel.id !== welcomeChannel?.id,
-  );
-  const busy = saving || pending !== undefined || !lifecycle.available;
-  const toggle = async (id: string, enabled: boolean) => {
+  // A channel being added shows while the relay confirms it, as one being
+  // removed stays until it has.
+  const { starters, addable } = useMemo(() => {
+    const starters: Option[] = [];
+    const addable: Option[] = [];
+    for (const channel of channels)
+      if (channel.id !== welcomeChannel?.id)
+        (starter(channel, confirmed) || channel.id === change?.id
+          ? starters
+          : addable
+        ).push(channel);
+    return { starters, addable };
+  }, [channels, welcomeChannel?.id, confirmed, change?.id]);
+  const needle = typed.trim().toLowerCase();
+  const matches = useMemo(() => ranked(addable, needle), [addable, needle]);
+  const failedAdd =
+    addError && !starters.some((channel) => channel.id === addError.id)
+      ? `#${channels.find((channel) => channel.id === addError.id)?.name ?? addError.id.slice(0, 8)}: ${addError.message}`
+      : undefined;
+  const busy = saving || change !== undefined || !lifecycle.available;
+  const toggle = async (
+    { id }: Option,
+    enabled: boolean,
+    trigger?: HTMLElement,
+  ) => {
     if (operation.current || saving) return;
     const controller = new AbortController();
     operation.current = controller;
+    setChange({ id, enabled });
     onPendingChange(id);
+    if (enabled) setAddError(undefined);
     setErrors((current) => {
       const next = new Map(current);
       next.delete(id);
@@ -741,83 +775,137 @@ function StarterChannels({
         controller.signal,
         active,
       );
+      // The removed row leaves with its button; focus stays in the list.
+      if (trigger && document.activeElement === trigger)
+        addInput.current?.focus({ preventScroll: true });
       setConfirmed((current) => new Map(current).set(id, enabled));
     } catch (reason) {
-      if (!controller.signal.aborted)
-        setErrors((current) =>
-          new Map(current).set(id, {
-            enabled,
-            // Setting the same value again is idempotent, so retrying is the check.
-            message:
-              reason instanceof ChannelLifecycleUnconfirmed
-                ? "Saved, but not confirmed yet. Try again to check."
-                : saveError(reason),
-          }),
-        );
+      if (controller.signal.aborted) return;
+      // Setting the same value again is idempotent, so retrying is the check.
+      const message =
+        reason instanceof ChannelLifecycleUnconfirmed
+          ? "Saved, but not confirmed yet. Try again to check."
+          : saveError(reason);
+      if (enabled) setAddError({ id, message });
+      else setErrors((current) => new Map(current).set(id, message));
     } finally {
       operation.current = undefined;
+      setChange(undefined);
       // The form may outlive this list, as when a check finds no support.
       onPendingChange(undefined);
     }
   };
+  const empty = starters.length
+    ? undefined
+    : loading
+      ? "Loading channels…"
+      : failed
+        ? undefined
+        : welcomeChannel
+          ? "No other channels yet"
+          : "No channels yet";
   return (
     <section aria-labelledby={heading} className={styles.preview}>
       <InlineHeader
         id={heading}
         title="Also add new members to"
-        subtitle="Turning a channel on adds people who join from now on, not people already in the community. In an open community, it also adds people who come back and have never been in that channel."
+        subtitle="A channel you add applies to people who join from now on, not people already in the community. In an open community, it also adds people who come back and have never been in that channel."
       />
-      {(welcomeChannel || others.length > 0) && (
+      {(welcomeChannel || starters.length > 0 || empty) && (
         <SettingsGroup>
           {welcomeChannel && (
-            <SwitchPreferenceRow
+            <PreferenceRow
               icon={<ChannelIcon />}
-              label={welcomeChannel.name}
-              description="Welcome channel · always joined"
-              checked
-              disabled
+              title={welcomeChannel.name}
+              subtitle="Welcome channel · always joined"
             />
           )}
-          {others.map((channel) => {
-            const checked = channel.joined
-              ? channel.autoJoin
-              : (confirmed.get(channel.id) ?? channel.autoJoin);
+          {starters.map((channel) => {
+            const adding = change?.id === channel.id && change.enabled;
+            const removing = change?.id === channel.id && !change.enabled;
             const error = errors.get(channel.id);
-            // Once the flag shows what a failed toggle wanted, it is in effect.
-            const shown = error && error.enabled !== checked ? error : undefined;
             return (
               <Fragment key={channel.id}>
-                <SwitchPreferenceRow
+                <PreferenceRow
                   icon={<ChannelIcon />}
-                  label={channel.name}
-                  checked={checked}
-                  disabled={busy}
-                  aria-busy={pending === channel.id || undefined}
-                  onCheckedChange={(enabled) =>
-                    void toggle(channel.id, enabled)
+                  title={channel.name}
+                  subtitle={adding ? "Adding…" : undefined}
+                  trailing={
+                    <Button
+                      variant="outline"
+                      loading={removing}
+                      disabled={busy && !removing}
+                      aria-label={`Remove #${channel.name} from starter channels`}
+                      onClick={(event) =>
+                        void toggle(channel, false, event.currentTarget)
+                      }
+                    >
+                      Remove
+                    </Button>
                   }
                 />
-                {shown && (
+                {error && (
                   <p role="alert" className="buzz-field-error">
-                    {shown.message}
+                    {error}
                   </p>
                 )}
               </Fragment>
             );
           })}
+          {empty && <PreferenceRow title={empty} />}
         </SettingsGroup>
       )}
-      {loading && !others.length ? (
-        <p role="status">Loading channels…</p>
-      ) : (
-        !failed &&
-        !others.length && <p>There are no other public channels yet.</p>
-      )}
+      <Combobox.Root<Option>
+        items={addable}
+        filteredItems={matches}
+        value={null}
+        inputValue={typed}
+        onInputValueChange={(next, details) => {
+          if (
+            details.reason === "input-change" ||
+            details.reason === "input-clear"
+          )
+            setTyped(next);
+        }}
+        onValueChange={(option) => {
+          if (!option) return;
+          setTyped("");
+          void toggle(option, true);
+        }}
+        itemToStringLabel={(option) => option.name}
+        itemToStringValue={(option) => option.id}
+        isItemEqualToValue={(a, b) => a.id === b.id}
+        disabled={!lifecycle.available}
+        autoHighlight
+      >
+        <Combobox.Control
+          ref={addInput}
+          label="Add a channel"
+          triggerLabel="Browse channels to add"
+          placeholder="Search public channels"
+          loading={loading}
+          error={
+            failedAdd ??
+            (failed ? "Public channels couldn’t be loaded." : undefined)
+          }
+        />
+        <Combobox.Popup
+          empty={loading ? "Loading channels…" : "No matching public channels."}
+        >
+          <Combobox.List>
+            {(option: Option) => (
+              <Combobox.Item key={option.id} value={option} disabled={busy}>
+                <ChoiceRow
+                  leading={<ChannelIcon size={18} />}
+                  label={option.name}
+                />
+              </Combobox.Item>
+            )}
+          </Combobox.List>
+        </Combobox.Popup>
+      </Combobox.Root>
       {failed && retry && (
         <div>
-          <p role="alert" className="error">
-            Public channels couldn’t be loaded.
-          </p>
           <Button type="button" onClick={retry}>
             Retry loading channels
           </Button>

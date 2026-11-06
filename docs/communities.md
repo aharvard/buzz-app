@@ -158,9 +158,14 @@ stream channels.
 
 The title starts with the custom title or the default, "Welcome to" and the
 viewer's own name for the community: 1–120 characters on one line. The message starts with the
-custom text or the default. It is Markdown, rendered as messages are:
-`[@Name](nostr:npub…)` identity links show the person without notifying them,
-and channel or message links pasted from **Copy link** open in place. It takes
+custom text or the default. It is edited in the message composer's editor, with
+its formatting toolbar, shortcuts and link dialog; Enter adds a line break, and
+there are no mentions, attachments, GIFs or cards. The message is stored as
+Markdown and rendered as messages are: published Markdown opens as its source
+text, as when editing a sent message, and formatting applied in the editor is
+written as Markdown. `[@Name](nostr:npub…)` identity links show the person
+without notifying them, and channel or message links pasted from **Copy link**
+show as chips in the editor and open in place for members. It takes
 1–4,000 characters, with no control characters other than line breaks and tabs.
 Both are checked against the relay's rules as the admin types. Line endings are
 normalized and both are trimmed before sending. A message matching the default
@@ -175,14 +180,17 @@ draft with Save disabled until **Check again** reads the relay's state. Archive,
 Delete, Make private and expiry are not disabled for the welcome channel yet; the
 relay refuses them, and that refusal is shown like any other lifecycle error.
 
-**Also add new members to** lists the community's open, unarchived stream
-channels, each with a switch for its starter flag. The welcome channel comes
-first, fixed on, because new members always join it; its own flag is left
-unchanged. A switch takes effect at once: it shows the relay-confirmed state, or
-the relay's refusal or a prompt to try again beside its row. One change runs at a
-time, and Save waits for it. Owners and admins can flag a channel they are not in.
-Turning a channel on adds people who join from then on, not current members; in
-an open community it also adds people who come back and have never been in that
+**Also add new members to** lists only the starter channels, so it stays short
+however many channels the community has. The welcome channel comes first, fixed,
+because new members always join it; its own flag is left unchanged. Each other
+starter channel has **Remove**, and **Add a channel** searches the community's
+open, unarchived stream channels that are not starters yet. Both take effect at
+once: an added channel is listed while the relay confirms it, and a removed one
+stays until it does. A refusal or a prompt to try again shows beside a removed
+channel's row, or on the search for an added one. One change runs at a time, and
+Save waits for it. Owners and admins can add a channel they are not in. Adding a
+channel applies to people who join from then on, not current members; in an
+open community it also adds people who come back and have never been in that
 channel.
 
 ## Import from the previous desktop app
