@@ -1,5 +1,8 @@
 import { ProfilePanel } from "../profiles/ProfilePanel";
-import { createRelaySession } from "../../features/relay/session";
+import {
+  createRelaySession,
+  type RelaySession,
+} from "../../features/relay/session";
 import {
   profileActivityViewTarget,
   profileTarget,
@@ -36,7 +39,10 @@ import type {
 } from "../../features/agents/service";
 import type { OldTeam, PortableAgent } from "../../features/agents/native";
 import { localStore } from "../../features/agents/state";
-import { setDefaultAgent } from "../../features/solo/default-agent";
+import {
+  chooseDefaultAgent,
+  setDefaultAgent,
+} from "../../features/solo/default-agent";
 import { readView, writeView } from "../../shared/view-state";
 import type { RelayData } from "../../features/relay/service";
 import type { CommunityReader } from "../../features/communities/service";
@@ -4844,6 +4850,74 @@ it("removes a Bestie on another device from its card, asking first", async () =>
   expect(
     within(menu).queryByRole("menuitem", { name: "Remove as bestie" }),
   ).toBeNull();
+});
+
+it("keeps a Bestie chosen elsewhere while its removal is being asked about", async () => {
+  const user = userEvent.setup();
+  const ada = agent("Ada", 1);
+  const bea = agent("Bea", 2);
+  const view = setup([ada, bea]);
+  const rows = [ada, bea].map((each) => ({
+    pubkey: each.pubkey,
+    name: each.name,
+    managed: true,
+  }));
+  const choices = {
+    status: "ready",
+    complete: true,
+    pending: false,
+    identities: rows,
+    selectable: rows,
+    archives: { status: "unavailable", archived: [] },
+  };
+  const mainAgent = {
+    read: async () => ada.pubkey,
+    write: vi.fn(async (_agent: string | null) => {}),
+  };
+  const connection = {
+    status: "ready",
+    scope: "remove-superseded-bestie",
+    session: {
+      mainAgent,
+      agentChoices: {
+        snapshot: () => choices,
+        subscribe: () => () => {},
+        retain: () => () => {},
+      },
+    },
+  };
+  const relay = {
+    snapshot: () => connection,
+    subscribe: () => () => {},
+  } as unknown as RelayData;
+  view.rerender(<AgentsPage agents={view.agents} relay={relay} />);
+  const card = await screen.findByRole("gridcell", { name: "Ada, Bestie" });
+  await user.click(
+    within(card).getByRole("button", { name: "Actions for Ada" }),
+  );
+  await user.click(
+    await screen.findByRole("menuitem", { name: "Remove as bestie" }),
+  );
+  const dialog = await screen.findByRole("alertdialog", {
+    name: "Remove Ada as your Bestie?",
+  });
+  // Another surface makes Bea Bestie while the question is open.
+  await act(() =>
+    chooseDefaultAgent(
+      connection.session as unknown as RelaySession,
+      connection.scope,
+      bea.pubkey,
+    ),
+  );
+  await user.click(
+    within(dialog).getByRole("button", { name: "Remove as Bestie" }),
+  );
+  await vi.waitFor(() =>
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument(),
+  );
+  expect(mainAgent.write).toHaveBeenCalledTimes(1);
+  expect(mainAgent.write).toHaveBeenLastCalledWith(bea.pubkey);
+  expect(screen.getByRole("gridcell", { name: "Bea, Bestie" })).toBeVisible();
 });
 
 it("keeps a failed Bestie replacement visible and retries the account save", async () => {

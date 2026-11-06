@@ -160,7 +160,12 @@ export function useBestieChoice(
           // Its Former Bestie tab shows only where its instructions can be
           // edited.
           remote={placeOf?.(removing.pubkey) === "elsewhere"}
-          remove={() => clearDefaultAgent(session, scope)}
+          remove={() =>
+            // A choice changed elsewhere while this dialog was open wins.
+            saved === removing.pubkey
+              ? clearDefaultAgent(session, scope)
+              : Promise.resolve()
+          }
           onClose={() => setRemoving(undefined)}
         />
       )}
