@@ -594,7 +594,7 @@ function ChannelWorkspace({
     (channel) => channel.landing && channel.channelType === "stream",
   );
   /** When the list first loaded; the opening waits are measured from it. */
-  const listed = useRef<number>(undefined);
+  const listedAt = useRef<number>(undefined);
   // With nothing saved or requested, the relay's NIP-11 document names its
   // welcome channel before the list can: a new member's list may not have it
   // yet. A saved selection whose metadata is still arriving needs no read; one
@@ -651,7 +651,7 @@ function ChannelWorkspace({
       () => setHeldOut(true),
       Math.max(
         0,
-        (listed.current ?? Date.now()) + ENROLLMENT_WAIT_MS - Date.now(),
+        (listedAt.current ?? Date.now()) + ENROLLMENT_WAIT_MS - Date.now(),
       ),
     );
     return () => clearTimeout(timer);
@@ -736,7 +736,7 @@ function ChannelWorkspace({
   }, []);
   useEffect(() => settleDefault, [settleDefault]);
   useLayoutEffect(() => {
-    if (list.status === "ready") listed.current ??= Date.now();
+    if (list.status === "ready") listedAt.current ??= Date.now();
     // The route handoff briefly passes no navigation; only another visit
     // settles the choice.
     if (
@@ -781,8 +781,8 @@ function ChannelWorkspace({
     if (
       currentId !== choice.channelId ||
       welcomeId === choice.channelId ||
-      listed.current === undefined ||
-      Date.now() - listed.current >= ENROLLMENT_WAIT_MS ||
+      listedAt.current === undefined ||
+      Date.now() - listedAt.current >= ENROLLMENT_WAIT_MS ||
       // Only the provisional visit while it is shown: never Settings over it,
       // nor a visit opened since. An unrouted workspace has no visit to match,
       // so only Settings is checked.
