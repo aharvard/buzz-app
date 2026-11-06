@@ -50,8 +50,6 @@ export interface ChannelLifecycleCapability {
   load(
     channelId: string,
     signal?: AbortSignal,
-    /** "strong" reads the writer, for a reread after a refresh. */
-    options?: Pick<ReadFilter, "consistency">,
   ): Promise<ChannelLifecycleSettings>;
   run(
     action: ChannelLifecycleCommand,
@@ -386,18 +384,10 @@ export function createChannelLifecycle({
       refresh = operation;
       return operation;
     },
-    async load(
-      value: string,
-      caller?: AbortSignal,
-      options?: Pick<ReadFilter, "consistency">,
-    ) {
+    async load(value: string, caller?: AbortSignal) {
       const id = lifecycleChannelId(value);
-      const strong = options?.consistency === "strong";
       return owned({ id, caller }, (signal) =>
-        retryRead(
-          () => reread(signal, () => load(id, signal, "any", strong)),
-          signal,
-        ),
+        retryRead(() => reread(signal, () => load(id, signal)), signal),
       );
     },
     async run(
