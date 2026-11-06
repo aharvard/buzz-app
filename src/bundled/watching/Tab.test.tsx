@@ -13,7 +13,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { AgentSaveState } from "../../features/agents/AgentSaveButton";
 import type { Context } from "../../plugins/author";
 import { createTab, describe } from "./Tab";
-import { AttentionEmptyState } from "./AttentionEmptyState";
+import { AttentionSonar } from "./AttentionSonar";
 
 afterEach(cleanup);
 const viewer = "f".repeat(64);
@@ -161,8 +161,8 @@ it("shows one agent's watches, reacts to changes and surfaces save errors", asyn
   expect(screen.getByRole("menuitem", { name: "Activate" })).toBeTruthy();
   expect(within(ada).getByText("Paused")).toBeTruthy();
   expect(
-    within(ada).getByRole("switch", {
-      name: "Run Ada’s watches on this device",
+    within(ada).getByRole("button", {
+      name: "Attention status for Ada",
     }),
   ).toBeTruthy();
   fireEvent.click(screen.getByRole("menuitem", { name: "Activate" }));
@@ -184,11 +184,16 @@ it("shows one agent's watches, reacts to changes and surfaces save errors", asyn
     };
     changed();
   });
-  const toggle = within(ada).getByRole("switch", {
-    name: "Run Ada’s watches on this device",
+  const toggle = within(ada).getByRole("button", {
+    name: "Attention status for Ada",
   });
-  expect(toggle.getAttribute("aria-checked")).toBe("false");
+  expect(toggle.textContent).toContain("Paused");
   fireEvent.click(toggle);
+  fireEvent.click(
+    within(
+      screen.getByRole("menu", { name: "Attention status for Ada" }),
+    ).getByRole("menuitem", { name: "Activate" }),
+  );
   await waitFor(() =>
     expect(save).toHaveBeenCalledWith("membership-a", {
       attentionEnabled: true,
@@ -360,9 +365,7 @@ it.each(["source", "event", "timer"] as const)(
     rejectInterest = false;
     fireEvent.click(removeInterest);
     await waitFor(() =>
-      expect(
-        screen.getByText("Give Ada something to keep an eye on."),
-      ).toBeTruthy(),
+      expect(screen.getByRole("heading", { name: "Attention" })).toBeTruthy(),
     );
     expect(save).toHaveBeenLastCalledWith("membership-a", {
       attention: { "interest/release": null },
@@ -513,13 +516,10 @@ it("explains Attention to a new agent and switches it on this device", async () 
     React.createElement(createTab(ctx), { agent: { key: "membership-b" } }),
   );
   expect(screen.getByRole("region", { name: "Start watching" })).toBeTruthy();
-  expect(screen.getByText("Give Bo something to keep an eye on.")).toBeTruthy();
-  expect(screen.getByText(/Ask Bo to follow a conversation/)).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Attention" })).toBeTruthy();
+  expect(screen.getByText(/Send Bo a message/)).toBeTruthy();
   expect(screen.queryByRole("switch")).toBeNull();
   expect(screen.queryByRole("button")).toBeNull();
-  expect(
-    screen.getByRole("list", { name: "Things to ask Bo" }).children,
-  ).toHaveLength(3);
   act(() => {
     snapshot = {
       ...snapshot,
@@ -536,15 +536,16 @@ it("explains Attention to a new agent and switches it on this device", async () 
     };
     changed();
   });
-  const toggle = screen.getByRole("switch", {
-    name: "Run Bo’s watches on this device",
+  const toggle = screen.getByRole("button", {
+    name: "Attention status for Bo",
   });
-  expect(toggle.getAttribute("aria-checked")).toBe("false");
+  expect(toggle.textContent).toContain("Paused");
   fireEvent.click(toggle);
+  fireEvent.click(screen.getByRole("menuitem", { name: "Activate" }));
   await waitFor(() =>
     expect(screen.getByRole("alert").textContent).toBe("Enable failed"),
   );
-  fireEvent.click(toggle);
+  fireEvent.click(screen.getByRole("menuitem", { name: "Activate" }));
   await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
   expect(save).toHaveBeenLastCalledWith("membership-b", {
     attentionEnabled: true,
@@ -1300,43 +1301,30 @@ it("shows a minimal activity timeline with full message and output previews", ()
   expect(within(build).queryByText("third", { selector: "pre" })).toBeNull();
 });
 
-it("rotates one example at a time and pauses while reading", async () => {
-  const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
-  vi.useFakeTimers();
+it("does not repeat consecutive sonar messages across sweeps", () => {
+  const random = vi.spyOn(Math, "random").mockReturnValue(0.25);
   try {
-    render(<AttentionEmptyState name="Ada" />);
-    const region = screen.getByRole("region", { name: "Start watching" });
-    expect(screen.queryByRole("button")).toBeNull();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5500);
-    });
-    expect(screen.getByText("Tell me when CI fails on this PR")).toBeTruthy();
-    expect(
-      screen.getByText("Tell me when my PR is ready to merge"),
-    ).toBeTruthy();
-    expect(screen.getByText("Check in every morning at 9")).toBeTruthy();
-    fireEvent.pointerEnter(region);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10000);
-    });
-    expect(
-      screen.queryByText("Watch this channel for deployment failures"),
-    ).toBeNull();
-    fireEvent.pointerLeave(region);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000);
-    });
-    expect(
-      screen.getByText("Watch this channel for deployment failures"),
-    ).toBeTruthy();
-    hidden.mockReturnValue(true);
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10000);
-    });
-    expect(screen.getByText("Check in every morning at 9")).toBeTruthy();
+    const { container } = render(
+      <AttentionSonar name="Ada" size="large" hints />,
+    );
+    const signals = [
+      ...container.querySelectorAll(".attention-sonar-signal"),
+    ].filter((signal) => signal.querySelector(".attention-sonar-hint"));
+    expect(signals).toHaveLength(3);
+    const seen = signals.map(
+      (signal) => signal.querySelector(".attention-sonar-hint")?.textContent,
+    );
+    for (let turn = 0; turn < 12; turn++) {
+      const signal = signals[turn % signals.length];
+      const dot = signal?.querySelector(".attention-sonar-dot");
+      if (!dot) throw new Error("Missing message signal");
+      fireEvent.animationIteration(dot);
+      seen.push(signal?.querySelector(".attention-sonar-hint")?.textContent);
+    }
+    for (let index = 1; index < seen.length; index++) {
+      expect(seen[index]).not.toBe(seen[index - 1]);
+    }
   } finally {
-    cleanup();
-    vi.useRealTimers();
-    hidden.mockRestore();
+    random.mockRestore();
   }
 });

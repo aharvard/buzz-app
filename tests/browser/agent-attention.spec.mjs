@@ -1,7 +1,7 @@
 import { test, expect } from "./source-fixture.mjs";
 
 const runtimeSwitch = (page) =>
-  page.getByRole("switch", { name: "Run Ada’s watches on this device" });
+  page.getByRole("button", { name: "Attention status for Ada" });
 
 // Real browser focus and scroll geometry are outside jsdom.
 test("The Attention tab fits both themes and sizes and manages existing watches by keyboard", async ({
@@ -10,6 +10,10 @@ test("The Attention tab fits both themes and sizes and manages existing watches 
   await page.goto("/tests/fixtures/agent-attention.html");
   const pane = page.getByRole("region", { name: "Attention", exact: true });
   await expect(pane).toBeVisible();
+  await expect(pane.locator(".attention-setting .buzz-avatar")).toHaveCSS(
+    "width",
+    "32px",
+  );
   // The real profile host joins its panels; Interest cards retain their own border.
   const interest = pane.getByRole("region", {
     name: "Interest Release planning",
@@ -80,18 +84,31 @@ test("The Attention tab fits both themes and sizes and manages existing watches 
       ).toBe(true);
     }
   }
-  const runtime = page.getByRole("switch", {
-    name: "Run Ada’s watches on this device",
+  const runtime = page.getByRole("button", {
+    name: "Attention status for Ada",
   });
   await runtime.focus();
   await page.keyboard.press("Space");
-  await expect(runtime).toHaveAttribute("aria-checked", "false");
+  await page.getByRole("menuitem", { name: "Pause", exact: true }).click();
+  await expect(runtime).toHaveText("Paused");
+  await expect(
+    page.locator(".attention-setting .attention-sonar-sweep"),
+  ).toHaveCSS("animation-play-state", "paused");
+  await page.screenshot({
+    path: testInfo.outputPath("attention-paused-menu.png"),
+  });
+  await page.keyboard.press("Escape");
   await expect(page.getByText("Paused", { exact: true }).first()).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Watch status for Release discussion" }),
   ).toBeVisible();
-  await page.keyboard.press("Space");
-  await expect(runtime).toHaveAttribute("aria-checked", "true");
+  await runtime.click();
+  await page.getByRole("menuitem", { name: "Activate", exact: true }).click();
+  await expect(runtime).toHaveText("Active");
+  await expect(
+    page.locator(".attention-setting .attention-sonar-sweep"),
+  ).toHaveCSS("animation-play-state", "running");
+  await page.keyboard.press("Escape");
   const details = page.getByRole("button", {
     name: "Details for example/project#42",
     exact: true,
@@ -102,12 +119,23 @@ test("The Attention tab fits both themes and sizes and manages existing watches 
   await page
     .getByRole("button", { name: "Watch status for example/project#42" })
     .click();
-  const toggle = page.getByRole("menuitem", {
-    name: "Pause",
-  });
-  await toggle.focus();
-  await page.keyboard.press("Space");
-  await expect(toggle).toHaveAttribute("aria-disabled", "true");
+  const toggle = page
+    .getByRole("menu", { name: "Watch status for example/project#42" })
+    .getByRole("menuitem", {
+      name: "Pause",
+      exact: true,
+    });
+  await page.evaluate(() => window.attentionFixture.holdSave());
+  try {
+    await toggle.focus();
+    await page.keyboard.press("Space");
+    await expect
+      .poll(() => page.evaluate(() => window.attentionFixture.saveStarted))
+      .toBe(true);
+    await expect(toggle).toHaveAttribute("aria-disabled", "true");
+  } finally {
+    await page.evaluate(() => window.attentionFixture.releaseSave());
+  }
   await page.keyboard.press("Escape");
   await page
     .getByRole("button", { name: "Source details for example/project#42" })
@@ -192,14 +220,14 @@ test("watch and interest deletion restore focus without taking it from another c
       .poll(() => page.evaluate(() => window.attentionFixture.saveStarted))
       .toBe(true);
     await page
-      .getByRole("switch", { name: "Run Ada’s watches on this device" })
+      .getByRole("button", { name: "Attention status for Ada" })
       .focus();
   } finally {
     await page.evaluate(() => window.attentionFixture.releaseSave());
   }
   await expect(remove).toHaveCount(0);
   await expect(
-    page.getByRole("switch", { name: "Run Ada’s watches on this device" }),
+    page.getByRole("button", { name: "Attention status for Ada" }),
   ).toBeFocused();
 });
 
@@ -233,10 +261,9 @@ test.describe("touch delete actions", () => {
 });
 
 // Joined profile framing and responsive artwork geometry require browser layout.
-test("empty Attention retains its card and clustered prompts in the profile host", async ({
+test("empty Attention retains its card and sonar at both widths in the profile host", async ({
   page,
 }, testInfo) => {
-  await page.clock.install();
   await page.goto("/tests/fixtures/agent-attention.html");
   for (const name of ["Release discussion", "example/project#42"]) {
     await page
@@ -256,7 +283,6 @@ test("empty Attention retains its card and clustered prompts in the profile host
   await removeInterest.first().focus();
   await page.keyboard.press("Enter");
   await expect(removeInterest).toHaveCount(1);
-  await page.clock.pauseAt(new Date(Date.now() + 1000));
   await removeInterest.first().focus();
   await page.keyboard.press("Enter");
   const empty = page.getByRole("region", {
@@ -264,6 +290,7 @@ test("empty Attention retains its card and clustered prompts in the profile host
     exact: true,
   });
   await expect(empty).toBeVisible();
+  await expect(empty.locator(".buzz-avatar")).toHaveCSS("width", "48px");
   for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     await expect(empty.locator(".buzz-empty-state")).toHaveCSS(
@@ -274,53 +301,66 @@ test("empty Attention retains its card and clustered prompts in the profile host
       "border-radius",
       "0px",
     );
-    const pile = empty.getByRole("list", { name: "Things to ask Ada" });
-    const box = await pile.boundingBox();
-    expect(box.width).toBeLessThanOrEqual(448);
+    await expect(empty.locator(".attention-sonar")).toHaveCSS("width", "160px");
+    await expect(empty.getByRole("button")).toHaveCount(0);
     expect(await empty.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
       true,
     );
-    await expect(pile.getByRole("listitem")).toHaveCount(3);
-    await expect(pile.getByRole("button")).toHaveCount(0);
-    await expect(pile.getByRole("listitem").first()).toHaveCSS(
-      "cursor",
-      "default",
-    );
     await page.screenshot({ path: testInfo.outputPath(`empty-${width}.png`) });
   }
-  await page.mouse.move(1200, 850);
-  await page.clock.runFor(5050);
-  const incoming = empty.getByText("Tell me when CI fails on this PR", {
-    exact: true,
-  });
-  const outgoing = empty.getByText("Watch this thread for new messages", {
-    exact: true,
-  });
-  await expect(incoming).toBeAttached();
-  await expect(outgoing).toBeAttached();
-  // WAAPI uses the document timeline, independently of the JS timer clock.
-  await expect
-    .poll(() => incoming.evaluate((el) => el.getAnimations().length))
-    .toBeGreaterThan(0);
-  await incoming.evaluate((el) => {
-    for (const animation of el.getAnimations()) {
+  // Sample the CSS timeline where the sweep reveals its first Citrus signal.
+  await empty.locator(".attention-sonar").evaluate((el) => {
+    for (const animation of el.getAnimations({ subtree: true })) {
       animation.pause();
-      animation.currentTime = 100;
+      const signal = el.querySelector(".attention-sonar-signal[data-citrus]");
+      const delay = Number.parseFloat(
+        getComputedStyle(signal).getPropertyValue("--sonar-delay"),
+      );
+      animation.currentTime = (delay + 0.6) * 1000;
     }
   });
-  const opacity = await incoming.evaluate((el) =>
-    Number(getComputedStyle(el).opacity),
+  await expect(empty.locator(".attention-sonar-hint").first()).toHaveCSS(
+    "opacity",
+    "1",
   );
-  expect(opacity).toBeGreaterThan(0);
-  expect(opacity).toBeLessThan(1);
-  await page.screenshot({
-    path: testInfo.outputPath("example-swap-midpoint.png"),
-  });
-  await empty.evaluate((el) => {
-    for (const animation of el.getAnimations({ subtree: true }))
-      animation.finish();
-  });
-  await page.clock.runFor(300);
-  await expect(outgoing).toHaveCount(0);
-  await expect(incoming).toHaveCSS("opacity", "1");
+  await page.screenshot({ path: testInfo.outputPath("sonar-signal.png") });
+  // Finishing a sweep must not replace a still-visible signal or its bubble.
+  expect(
+    await empty.locator(".attention-sonar").evaluate(async (el) => {
+      const hint = el.querySelector(".attention-sonar-hint");
+      el.querySelector(".attention-sonar-sweep").dispatchEvent(
+        new AnimationEvent("animationiteration", {
+          animationName: "attention-sonar-scan",
+          bubbles: true,
+        }),
+      );
+      await new Promise(requestAnimationFrame);
+      return hint.isConnected && Number(getComputedStyle(hint).opacity) === 1;
+    }),
+  ).toBe(true);
+  // Sample two complete native animation cycles, including the wraparound.
+  const maximumVisibleHints = await empty
+    .locator(".attention-sonar")
+    .evaluate((el) => {
+      const animations = el.getAnimations({ subtree: true });
+      const period =
+        Number.parseFloat(
+          getComputedStyle(el).getPropertyValue("--sonar-period"),
+        ) * 1000;
+      let maximum = 0;
+      for (let time = 0; time < period * 2; time += 100) {
+        for (const animation of animations) {
+          animation.pause();
+          animation.currentTime = time;
+        }
+        maximum = Math.max(
+          maximum,
+          [...el.querySelectorAll(".attention-sonar-hint")].filter(
+            (hint) => Number(getComputedStyle(hint).opacity) > 0.01,
+          ).length,
+        );
+      }
+      return maximum;
+    });
+  expect(maximumVisibleHints).toBe(1);
 });

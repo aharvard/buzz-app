@@ -9,7 +9,8 @@ import {
 } from "../../shared/design-system/icons";
 import { Button } from "../../shared/design-system/ui/Button";
 import { SettingsGroup } from "../../shared/design-system/ui/SettingsGroup";
-import { SwitchPreferenceRow } from "../../shared/design-system/ui/SwitchPreferenceRow";
+import { PreferenceRow } from "../../shared/design-system/ui/PreferenceRow";
+import { AttentionStatus } from "./AttentionStatus";
 import { Switch as SharedSwitch } from "../../shared/design-system/ui/Switch";
 import type { Context } from "../../plugins/author";
 import type { Agent } from "./model";
@@ -17,6 +18,7 @@ import type { RelaySession } from "../../features/relay/session";
 import { InstructionsMarkdown } from "./InstructionsMarkdown";
 import { title, heading, type Channel } from "./presentation";
 import { problem, useAction } from "./actions";
+import { AttentionSonar } from "./AttentionSonar";
 import { AttentionEmptyState } from "./AttentionEmptyState";
 import { createWatchComponents } from "./WatchRow";
 export { heading, describe } from "./presentation";
@@ -237,18 +239,34 @@ export function createAttentionComponents({
     return (
       <div className="attention-agent">
         {!empty && (
-          <SwitchPreferenceRow
-            label="Run watches on this device"
-            description="Watches only run while Buzz is open on this device."
-            aria-label={`Run ${agent.name}’s watches on this device`}
-            checked={agent.attentionEnabled}
-            disabled={action.pending}
-            onCheckedChange={(attentionEnabled) =>
-              void action.run(() =>
-                agents.save(agent.key, { attentionEnabled }),
-              )
-            }
-          />
+          <SettingsGroup layout="cards">
+            <section
+              className="attention-setting"
+              aria-label="Attention settings"
+            >
+              <AttentionSonar
+                name={agent.name}
+                picture={agent.picture}
+                active={agent.attentionEnabled}
+              />
+              <PreferenceRow
+                title="Attention"
+                subtitle={`Let ${agent.name} watch for updates and check in on a schedule. Runs while Buzz is open on this device.`}
+                trailing={
+                  <AttentionStatus
+                    name={agent.name}
+                    active={agent.attentionEnabled}
+                    pending={action.pending}
+                    onChange={(attentionEnabled) =>
+                      void action.run(() =>
+                        agents.save(agent.key, { attentionEnabled }),
+                      )
+                    }
+                  />
+                }
+              />
+            </section>
+          </SettingsGroup>
         )}
         {problem(action.error)}
         {skipped.map((object) => (
@@ -313,7 +331,9 @@ export function createAttentionComponents({
             ))}
           </section>
         )}
-        {empty && <AttentionEmptyState name={agent.name} />}
+        {empty && (
+          <AttentionEmptyState name={agent.name} picture={agent.picture} />
+        )}
       </div>
     );
   }

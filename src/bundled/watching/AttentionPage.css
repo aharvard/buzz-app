@@ -318,6 +318,14 @@ details[open] > .attention-disclosure > svg {
   padding-block: 0;
 }
 
+.attention-table-row,
+.attention-column-headings {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 22cqi) minmax(0, 18cqi) 5.5rem;
+  column-gap: var(--space-2);
+  display: grid;
+  align-items: center;
+}
+
 /* Match the transcript's quiet disclosure rows and pointer-only metadata. */
 .attention-table-row,
 .attention-activity-row,
@@ -460,19 +468,17 @@ html[data-keyboard-navigation] .attention-disclosure:focus-visible {
 .attention-table-row {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 18cqi) minmax(0, 22cqi) 5.5rem;
   align-items: center;
   min-height: calc(var(--space-8) + var(--space-2));
   margin-inline: calc(-1 * var(--space-2));
   padding-inline-start: var(--space-2);
   padding-inline-end: var(--space-2);
-  column-gap: var(--space-1);
 }
 .attention-reference .attention-channel-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-inline-size: 5rem;
+  max-inline-size: 7rem;
 }
 .attention-watch-activity {
   min-width: 0;
@@ -575,12 +581,6 @@ html[data-keyboard-navigation] .attention-disclosure:focus-visible {
   background: transparent;
   border-block-end: 1px solid var(--border-standard);
 }
-.attention-column-headings {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 18cqi) minmax(0, 22cqi) 5.5rem;
-  column-gap: var(--space-1);
-  display: grid;
-  align-items: center;
-}
 .attention-column-headings h5 {
   margin: 0;
 }
@@ -588,7 +588,7 @@ html[data-keyboard-navigation] .attention-disclosure:focus-visible {
   text-align: start;
 }
 .attention-column-headings > :last-child {
-  text-align: end;
+  text-align: start;
 }
 .attention-column-headings + .attention-list {
   margin-block-start: calc(-1 * var(--space-3));
@@ -616,4 +616,19 @@ html[data-keyboard-navigation] .attention-disclosure:focus-visible {
   + .attention-list > .attention-card:first-child[data-expanded]
 ) {
   border-block-end-color: transparent;
+}
+
+.attention-setting {
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.attention-setting > .attention-sonar {
+  flex-shrink: 0;
+}
+.attention-setting > .buzz-preference-row {
+  flex: 1;
+  min-width: 0;
 }
