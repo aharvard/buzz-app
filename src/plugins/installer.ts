@@ -18,8 +18,12 @@ type PluginInstallationStatus = "installed" | "absent" | "unavailable";
 export type PluginInstaller = Readonly<{
   /** Opens Settings → Plugins for the user to review; it never installs silently. */
   requestInstall(source: PluginInstallSource): Promise<PluginInstallOutcome>;
+  /**
+   * Checks stable manifest-ID membership in the ready catalog, regardless of
+   * enabled state or install source. Returns unavailable until the catalog is ready.
+   */
   getInstallationStatus(id: string): PluginInstallationStatus;
-  /** Listen for changes; call getInstallationStatus after subscribing for the current status. */
+  /** Listen for status changes; call getInstallationStatus after subscribing for the current status. */
   subscribeInstallationStatus(
     id: string,
     listener: (status: PluginInstallationStatus) => void,
@@ -386,7 +390,15 @@ export function createPluginInstallerService(
     ): () => void {
       const caller = this.ctx;
       const stop = caller.effect(() =>
-        host.core.subscribeInstallationStatus(id, listener),
+        host.core.subscribeInstallationStatus(id, (status) => {
+          try {
+            listener(status);
+          } catch (error) {
+            caller
+              .logger("pluginInstaller")
+              .warn("Installed-plugin status listener failed", error);
+          }
+        }),
       );
       return () => void stop();
     }
