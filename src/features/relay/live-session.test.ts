@@ -1447,6 +1447,7 @@ it("skips the reads a continuous global replay covers, and keeps them after a cu
     },
     {
       readStateStorage: {
+        capture: async () => structuredClone(journal),
         async update(change) {
           journal = readJournal(change(journal), viewer.pubkey);
           return journal;
