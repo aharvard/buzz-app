@@ -9,12 +9,8 @@ const prompts = [
   "Watch this thread for new messages",
   "Tell me when my PR is ready to merge",
   "Check in every morning at 9",
-  "Flag new deployment failures",
-  "Follow this incident until it’s resolved",
 ];
-const accents = ["citrus", "magenta", "cobalt", "citrus", "cobalt"];
-const tilts = [-3, 2, -2, 3, 0];
-const offsets = [-3, 2, 0, -2, 3];
+const tilts = [-4, 3, -2];
 
 export function AttentionEmptyState({
   name,
@@ -68,7 +64,7 @@ export function AttentionEmptyState({
                 hidden: { opacity: 0, y: -36, rotate: 0 },
                 visible: {
                   opacity: 1,
-                  y: reduced ? 0 : (offsets[index % offsets.length] ?? 0),
+                  y: 0,
                   rotate: reduced ? 0 : (tilts[index % tilts.length] ?? 0),
                   transition: {
                     type: "spring",
@@ -88,12 +84,8 @@ export function AttentionEmptyState({
                 dragged.current = true;
               }}
               whileDrag={{ scale: 1.03, rotate: 0, zIndex: 5 }}
-              data-color-level="high"
             >
-              <div
-                className="attention-empty-theme"
-                data-accent={accents[index % accents.length]}
-              >
+              <div className="attention-empty-theme" data-accent="citrus">
                 <Button
                   variant="plain"
                   size="inline"
@@ -110,7 +102,7 @@ export function AttentionEmptyState({
                   }}
                 >
                   <span
-                    className="attention-empty-bubble text-caption"
+                    className="attention-empty-bubble text-body-sm"
                     data-own=""
                   >
                     {text}

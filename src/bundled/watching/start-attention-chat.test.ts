@@ -79,7 +79,7 @@ it("opens the real New chat route with an editable, explicitly addressed prompt"
   );
   expect(screen.queryByRole("switch")).toBeNull();
   fireEvent.click(
-    screen.getByRole("button", { name: "Flag new deployment failures" }),
+    screen.getByRole("button", { name: "Watch this thread for new messages" }),
   );
   await waitFor(() => expect(f.open).toHaveBeenCalled());
   expect(save).not.toHaveBeenCalled();
@@ -92,7 +92,7 @@ it("opens the real New chat route with an editable, explicitly addressed prompt"
     route: { version: 1, params: { kind: "solo-draft", agent: pubkey } },
   });
   expect(readView(scope, "solo:new-draft", null)).toMatchObject({
-    text: "@Ada Flag new deployment failures",
+    text: "@Ada Watch this thread for new messages",
     recipients: [{ pubkey, name: "Ada", start: 0, end: 4 }],
   });
 });

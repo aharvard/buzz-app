@@ -1,4 +1,4 @@
-/* Prompt artwork reuses the Buzzin’ own-message fill and paired ink. */
+/* Three quiet message prompts, with stable artwork geometry. */
 .attention-empty-preview {
   display: grid;
   gap: var(--space-6);
@@ -15,23 +15,27 @@
   margin: 0;
 }
 .attention-empty-pile {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: center;
-  gap: var(--space-3);
-  max-height: 240px;
-  overflow: hidden;
+  display: grid;
+  gap: 0;
   margin: 0;
-  padding: var(--space-4) var(--space-2);
+  padding: var(--space-4) var(--space-6) var(--space-6);
   list-style: none;
 }
 .attention-empty-piece {
   position: relative;
   width: max-content;
-  max-width: 100%;
+  max-width: 94%;
   touch-action: pan-y;
   cursor: grab;
+}
+.attention-empty-piece + .attention-empty-piece {
+  margin-block-start: calc(-1 * var(--space-1));
+}
+.attention-empty-piece:nth-child(2) {
+  justify-self: end;
+}
+.attention-empty-piece:nth-child(3) {
+  margin-inline-start: var(--space-4);
 }
 .attention-empty-theme > button {
   max-width: 100%;
@@ -51,7 +55,6 @@
   overflow-wrap: anywhere;
   text-align: start;
   box-shadow: var(--shadow-xs);
-  outline: 1.5px solid color-mix(in srgb, var(--surface-panel) 50%, transparent);
 }
 
 .attention-empty-piece:active {
@@ -64,10 +67,10 @@
 }
 
 .attention-empty-theme {
-  --surface-message-own: var(--accent-9-light);
-  --text-message-own: var(--accent-ink-light);
+  --surface-message-own: var(--accent-4-light);
+  --text-message-own: var(--accent-12-light);
 }
 :root[data-color-mode="dark"] .attention-empty-theme {
-  --surface-message-own: var(--accent-9-dark);
-  --text-message-own: var(--accent-ink-dark);
+  --surface-message-own: var(--accent-4-dark);
+  --text-message-own: var(--accent-12-dark);
 }
