@@ -24,6 +24,7 @@ import {
   outsider,
   root,
   scope,
+  viewer,
 } from "../../app/shell/sidebar-testing";
 stubAvatarBrowserApis();
 afterEach(() => {
@@ -338,6 +339,46 @@ it("renders again only the Solo row whose chat changed", () => {
   expect(renders.get(other)).toBeGreaterThan(0);
   // Planning's chat did not change, so its row did not render again.
   expect(renders.has(id)).toBe(false);
+});
+
+it("renames and opens settings for a chat the roster delivers after mount", async () => {
+  const f = fixture();
+  Object.assign(f.session, {
+    channelDetails: {
+      ...f.session.channelDetails,
+      available: true,
+      load: vi.fn(async (channelId: string) => ({
+        channelId,
+        name: "Fresh",
+        description: "",
+        visibility: "private",
+        labels: ["buzz.solo"],
+        canEdit: true,
+        version: "one",
+      })),
+    },
+  });
+  f.replaceSession();
+  f.roster((channels) => [
+    ...channels,
+    { id: "fresh", name: "Fresh", channelType: "solo", creator: viewer },
+  ]);
+  const user = userEvent.setup();
+  // Rows read their actions when used: a row added after mount must reach
+  // the actions of the current render, not those of the first one.
+  await user.click(
+    await screen.findByRole("button", { name: "Actions for Fresh" }),
+  );
+  await user.click(await screen.findByRole("menuitem", { name: "Rename" }));
+  expect(screen.getByRole("textbox", { name: "Chat name" })).toHaveValue(
+    "Fresh",
+  );
+  await user.keyboard("{Escape}");
+  await user.click(screen.getByRole("button", { name: "Actions for Fresh" }));
+  await user.click(
+    await screen.findByRole("menuitem", { name: "Chat settings" }),
+  );
+  expect(await screen.findByRole("dialog")).toBeVisible();
 });
 
 it("describes a Solo row as Shared only when its Shared mark renders", () => {

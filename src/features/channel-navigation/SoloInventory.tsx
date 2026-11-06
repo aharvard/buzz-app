@@ -2,7 +2,6 @@ import { useSoloRowActivation } from "./useSoloRowActivation";
 import { useSoloNavigation } from "./solo-navigation-react";
 import {
   useCallback,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -128,45 +127,47 @@ export function SoloInventory({
     () => new Set<string>(JSON.parse(workingIds)),
     [workingIds],
   );
-  const open = (channelId: string) =>
-    navigator.open(conversationTarget(scope, channelId));
-  const openMessage = (channelId: string, messageId?: string) => {
-    if (handoff && handoff.session !== session) return;
-    const destination =
-      messageId && session.viewer
-        ? buzzLinkTarget(
-            `buzz://message?channel=${channelId}&id=${messageId}`,
-            {
-              viewer: session.viewer,
-              communityOrigin: scope.slice(0, -(session.viewer.length + 1)),
-            },
-          )
-        : conversationTarget(scope, channelId);
-    if (destination) void navigator.open(destination);
-  };
-  const openAgentActivity = (channelId: string, agent: string) => {
-    if (!handoff || handoff.session !== session) return;
-    const intent = {
-      channelId,
-      agent,
-      trigger: document.querySelector<HTMLElement>(
-        `[data-solo-channel-id="${CSS.escape(channelId)}"]`,
-      ),
-      // A Solo chat is one conversation, so its transcript is known.
-      transcript: {},
-    };
-    handoff.activityAgent.current = intent;
-    void open(channelId).then(() => {
-      if (handoff.activityAgent.current === intent)
-        handoff.activityAgent.current = undefined;
-    });
-  };
-  // Rows call the latest handlers, so the row renderer changes only with
-  // what the rows show.
-  const rowActions = useRef({ open, openMessage, openAgentActivity });
-  useLayoutEffect(() => {
-    rowActions.current = { open, openMessage, openAgentActivity };
-  });
+  const open = useCallback(
+    (channelId: string) => navigator.open(conversationTarget(scope, channelId)),
+    [navigator, scope],
+  );
+  const openMessage = useCallback(
+    (channelId: string, messageId?: string) => {
+      if (handoff && handoff.session !== session) return;
+      const destination =
+        messageId && session.viewer
+          ? buzzLinkTarget(
+              `buzz://message?channel=${channelId}&id=${messageId}`,
+              {
+                viewer: session.viewer,
+                communityOrigin: scope.slice(0, -(session.viewer.length + 1)),
+              },
+            )
+          : conversationTarget(scope, channelId);
+      if (destination) void navigator.open(destination);
+    },
+    [handoff, session, navigator, scope],
+  );
+  const openAgentActivity = useCallback(
+    (channelId: string, agent: string) => {
+      if (!handoff || handoff.session !== session) return;
+      const intent = {
+        channelId,
+        agent,
+        trigger: document.querySelector<HTMLElement>(
+          `[data-solo-channel-id="${CSS.escape(channelId)}"]`,
+        ),
+        // A Solo chat is one conversation, so its transcript is known.
+        transcript: {},
+      };
+      handoff.activityAgent.current = intent;
+      void open(channelId).then(() => {
+        if (handoff.activityAgent.current === intent)
+          handoff.activityAgent.current = undefined;
+      });
+    },
+    [handoff, session, open],
+  );
   const renderChat = useCallback(
     (
       item: ChatListItem,
@@ -184,21 +185,26 @@ export function SoloInventory({
         selected={selected === item.id}
         working={workingChannels.has(item.id)}
         Icon={ChatIcon}
-        onSelect={() => void rowActions.current.open(item.id)}
+        onSelect={() => void open(item.id)}
         onRename={rename}
-        onOpenThread={(thread) =>
-          rowActions.current.openMessage(thread.channelId, thread.rootId)
-        }
+        onOpenThread={(thread) => openMessage(thread.channelId, thread.rootId)}
         onOpenWorkingAgent={(id, _agent, messageId) => {
-          if (messageId) rowActions.current.openMessage(id, messageId);
-          else void rowActions.current.open(id);
+          if (messageId) openMessage(id, messageId);
+          else void open(id);
         }}
-        onOpenAgentActivity={(channelId, agent) =>
-          rowActions.current.openAgentActivity(channelId, agent)
-        }
+        onOpenAgentActivity={openAgentActivity}
       />
     ),
-    [session, navigator, selected, workingChannels, ChatIcon],
+    [
+      session,
+      navigator,
+      selected,
+      workingChannels,
+      ChatIcon,
+      open,
+      openMessage,
+      openAgentActivity,
+    ],
   );
   const renderChatMenu = useCallback(
     (channelId: string) =>
