@@ -615,3 +615,105 @@ test("avatar picker previews pointer selections and respects reduced motion", as
     page.getByRole("tab", { name: "Emoji", exact: true }),
   ).toHaveCount(0);
 });
+
+const onboardingAvatar = async (page) => {
+  await page.route("**/api/relay/**", (route) => route.abort());
+  await page.goto("/tests/fixtures/onboarding-profile.html");
+  const add = page.getByRole("button", { name: "Add avatar", exact: true });
+  await add.click();
+  const dialog = page.getByRole("dialog", { name: "Edit avatar", exact: true });
+  await expect(dialog).toBeVisible();
+  return { add, dialog };
+};
+
+// Browser boundary: Base UI outside-press and focus-out dismissal, and return
+// focus to a trigger that is remounted when the draft preview clears.
+test("an unsaved onboarding avatar draft survives an outside press, and closing returns focus", async ({
+  page,
+}) => {
+  const { add, dialog } = await onboardingAvatar(page);
+  const heading = page.getByRole("heading", { name: "Set up your profile" });
+  // An untouched draft still dismisses on an outside press.
+  await heading.click();
+  await expect(dialog).toHaveCount(0);
+  await add.click();
+  const url = page.getByRole("textbox", { name: "Picture URL (optional)" });
+  await url.fill("https://images.example/avatar.png");
+  // The heading is focusable, but the draft keeps focus as well as the popup.
+  await heading.click();
+  await page.mouse.click(4, 4);
+  await expect(dialog).toBeVisible();
+  await expect(url).toBeFocused();
+  await expect(url).toHaveValue("https://images.example/avatar.png");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(add).toBeFocused();
+
+  // A picked emoji is a draft too, even before any URL exists.
+  await add.click();
+  await page.getByRole("tab", { name: "Emoji", exact: true }).click();
+  await expect(
+    page.getByRole("searchbox", { name: "Search emoji" }),
+  ).toBeVisible();
+  await heading.click();
+  await expect(dialog).toBeVisible();
+  await page.getByRole("tab", { name: "Emoji", exact: true }).press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(add).toBeFocused();
+
+  // Tabbing out still closes, and focus lands on a control, not a hidden guard.
+  await add.click();
+  await url.fill("https://images.example/avatar.png");
+  await page.getByRole("button", { name: "Done", exact: true }).focus();
+  await page.keyboard.press("Tab");
+  await expect(dialog).toHaveCount(0);
+  await expect(add).toBeFocused();
+});
+
+test("the picture URL error waits for blur or Done, then clears as the URL is fixed", async ({
+  page,
+}) => {
+  const { dialog } = await onboardingAvatar(page);
+  const url = page.getByRole("textbox", { name: "Picture URL (optional)" });
+  const done = page.getByRole("button", { name: "Done", exact: true });
+  const message = /Use an HTTPS image URL/;
+  await url.pressSequentially("h");
+  await expect(url).not.toHaveAccessibleDescription(message);
+  await expect(url).not.toHaveAttribute("aria-invalid", "true");
+  // Enter is an attempt: it shows the error and keeps the invalid URL unapplied.
+  await url.press("Enter");
+  await expect(url).toHaveAccessibleDescription(message);
+  await expect(dialog).toBeVisible();
+  await url.fill("https://images.example/avatar.png");
+  await expect(url).not.toHaveAccessibleDescription(message);
+  await url.fill("http://images.example/avatar.png");
+  await expect(url).toHaveAccessibleDescription(message);
+  await url.fill("");
+  await expect(url).not.toHaveAccessibleDescription(message);
+
+  // Reopen for a fresh draft: blur reveals the error, and Done cannot apply it.
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Add avatar", exact: true }).click();
+  await url.pressSequentially("ftp://x");
+  await expect(url).not.toHaveAccessibleDescription(message);
+  await page.getByRole("tab", { name: "Image", exact: true }).focus();
+  await expect(url).toHaveAccessibleDescription(message);
+  await url.fill("");
+  await url.pressSequentially("ftp://x");
+  await done.click();
+  await expect(dialog).toBeVisible();
+  await expect(url).toBeFocused();
+  await expect(url).toHaveAccessibleDescription(message);
+  await expect(
+    page.getByRole("button", { name: "Add avatar", exact: true }),
+  ).toHaveCount(0);
+});
+
+test("the onboarding display name keeps nickname autofill without spellcheck", async ({
+  page,
+}) => {
+  await page.goto("/tests/fixtures/onboarding-profile.html");
+  const name = page.getByLabel("Display name", { exact: true });
+  await expect(name).toHaveAttribute("spellcheck", "false");
+  await expect(name).toHaveAttribute("autocomplete", "nickname");
+});

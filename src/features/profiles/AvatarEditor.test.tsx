@@ -194,7 +194,8 @@ it("rejects unsafe URLs before selecting the draft", async () => {
     fireEvent.change(screen.getByLabelText("Picture URL (optional)"), {
       target: { value },
     });
-    expect(screen.getByRole("button", { name: "Done" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.getByLabelText("Draft picture")).toHaveTextContent(original);
     expect(
       screen.getByLabelText("Picture URL (optional)"),
     ).toHaveAccessibleDescription(/Use an HTTPS image URL/);

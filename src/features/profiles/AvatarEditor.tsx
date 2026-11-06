@@ -98,12 +98,39 @@ export function AvatarEditor(props: Props) {
   );
   const pictureError = avatarPictureError(props.value);
   const errorId = useId();
+  // The empty and filled triggers swap as the draft preview changes. One id
+  // lets Base UI follow the mounted one, for Tab and return focus.
+  const triggerId = useId();
+  const popupElement = useRef<HTMLDivElement>(null);
+  // What the preview shows and Done could apply (an emoji needs a community).
+  const unsaved =
+    !!draftPreview &&
+    (draftPreview.emoji
+      ? !!props.community
+      : draftPreview.picture !== props.value);
   const callback = useRef(props.onBusyChange);
   callback.current = props.onBusyChange;
   useEffect(() => {
     callback.current?.(open);
     return () => callback.current?.(false);
   }, [open]);
+  // Only Done applies a draft, so a press elsewhere keeps the popup open
+  // (see onOpenChange) and its focus: once Base UI sees focus leave, it skips
+  // returning focus on the next close, even when that dismissal was cancelled.
+  useEffect(() => {
+    if (!open || !unsaved || props.inlinePicker) return;
+    const keepFocus = (event: MouseEvent) => {
+      const { target } = event;
+      if (
+        target instanceof Element &&
+        !popupElement.current?.contains(target) &&
+        !target.closest("[data-emoji-position]")
+      )
+        event.preventDefault();
+    };
+    document.addEventListener("mousedown", keepFocus, true);
+    return () => document.removeEventListener("mousedown", keepFocus, true);
+  }, [open, unsaved, props.inlinePicker]);
   const draft = open && (
     <AvatarDraft
       key={props.community ?? "local"}
@@ -133,11 +160,16 @@ export function AvatarEditor(props: Props) {
           const { event } = details;
           const target =
             event instanceof FocusEvent ? event.relatedTarget : event.target;
+          // An unsaved draft survives a press elsewhere. Escape still
+          // discards it, and so does tabbing out onto a focus guard.
           if (
             (details.reason === "outside-press" ||
               details.reason === "focus-out") &&
             target instanceof Element &&
-            target.closest("[data-emoji-position]")
+            (target.closest("[data-emoji-position]") ||
+              (unsaved &&
+                !popupElement.current?.contains(target) &&
+                !target.closest("[data-base-ui-focus-guard]")))
           )
             return details.cancel();
           if (!props.inlinePicker || next) setOpen(next);
@@ -149,6 +181,7 @@ export function AvatarEditor(props: Props) {
         !draftPreview?.emoji ? (
           <div className={styles.avatarFrame}>
             <Popover.Trigger
+              id={triggerId}
               render={
                 <button
                   type="button"
@@ -178,6 +211,7 @@ export function AvatarEditor(props: Props) {
         ) : props.triggerStyle === "dotted-squircle" ? (
           <div className={styles.dottedFrame}>
             <Popover.Trigger
+              id={triggerId}
               render={
                 <button
                   type="button"
@@ -216,6 +250,7 @@ export function AvatarEditor(props: Props) {
           </div>
         ) : props.triggerLabel ? (
           <Popover.Trigger
+            id={triggerId}
             render={
               <Button size="compact" disabled={props.disabled}>
                 {props.triggerLabel}
@@ -252,6 +287,7 @@ export function AvatarEditor(props: Props) {
             )}
             <div className={styles.editBadge}>
               <Popover.Trigger
+                id={triggerId}
                 render={
                   <IconButton
                     variant="solid"
@@ -305,6 +341,7 @@ export function AvatarEditor(props: Props) {
               style={{ zIndex: "var(--layer-popover)" }}
             >
               <Popover.Popup
+                ref={popupElement}
                 data-buzz-ui=""
                 className={`popover-surface ${styles.popup}`}
               >
@@ -537,6 +574,7 @@ function AvatarDraft({
   ]);
   useEffect(() => () => onPreview(null), [onPreview]);
   const input = useRef<HTMLInputElement>(null);
+  const urlInput = useRef<HTMLInputElement>(null);
   const pending = useRef<AbortController | null>(null);
   useEffect(
     () => () => {
@@ -573,18 +611,25 @@ function AvatarDraft({
     }
   }
   const pictureError = avatarPictureError(picture);
+  // Validate late: show the URL error after blur or an attempt to apply it,
+  // then keep it current so it clears as soon as the URL is fixed.
+  // An invalid saved URL is not a new attempt, so it shows at once.
+  const [checkPicture, setCheckPicture] = useState(() => !!pictureError);
+  const applyPicture = () => {
+    if (!pictureError) return done(picture);
+    setCheckPicture(true);
+    urlInput.current?.focus();
+  };
   const doneButton = (
     <Button
       variant="prominent"
       disabled={
-        disabled ||
-        busy ||
-        (mode !== "image" ? !community || !emoji.trim() : !!pictureError)
+        disabled || busy || (mode !== "image" && (!community || !emoji.trim()))
       }
       onClick={() => {
         if (mode !== "image")
           void upload(() => emojiAvatar(emoji, color, scale, offset), true);
-        else done(picture);
+        else applyPicture();
       }}
     >
       Done
@@ -645,13 +690,14 @@ function AvatarDraft({
         <Field
           label="Picture URL (optional)"
           labelVisibility="hidden"
-          error={pictureError}
+          error={checkPicture ? pictureError : undefined}
         >
           <InputGroup
             surface={inlinePicker ? "panel" : "inset"}
             leading={<LinkIcon size={18} aria-hidden="true" />}
           >
             <Input
+              ref={urlInput}
               type="url"
               placeholder="Paste an image URL"
               maxLength={2048}
@@ -660,9 +706,10 @@ function AvatarDraft({
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  if (!disabled && !busy && !pictureError) done(picture);
+                  if (!disabled && !busy) applyPicture();
                 }
               }}
+              onBlur={() => setCheckPicture(true)}
               onChange={(event) => {
                 setPicture(event.target.value);
                 setError("");
