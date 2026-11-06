@@ -11,15 +11,45 @@ test("The Attention tab fits both themes and sizes and manages existing watches 
   const pane = page.getByRole("region", { name: "Attention", exact: true });
   await expect(pane).toBeVisible();
   await page
-    .getByRole("button", { name: "Details for Release discussion" })
+    .getByRole("button", {
+      name: "Details for Release discussion",
+      exact: true,
+    })
+    .click();
+  await page
+    .getByLabel("Show activity for Release discussion", { exact: true })
     .click();
   await expect(page.getByText(/The release is ready for review/)).toBeVisible();
-  const messages = page.locator(".attention-recent > li [data-message-id]");
-  await expect(messages).toHaveCount(3);
-  await expect(messages.first().getByText("Alex")).toBeVisible();
+  const timeline = page.getByRole("list", {
+    name: "Activity for Release discussion",
+  });
+  await expect(timeline.getByRole("listitem")).toHaveCount(3);
+  const preview = timeline.locator("summary").first();
+  await preview.click();
+  const messages = page.locator(
+    ".attention-activity-preview [data-message-id]",
+  );
+  await expect(messages).toHaveCount(1);
+  await expect(messages.getByText("Alex")).toBeVisible();
   await expect(
-    messages.first().getByRole("link", { name: "release doc" }),
+    messages.getByRole("link", { name: "release doc" }),
   ).toHaveAttribute("href", "https://example.com/release");
+  await preview.click();
+  await expect(messages).toHaveCount(0);
+  // Pointer affordances must reveal metadata without changing row geometry.
+  const stamp = preview.locator(".attention-activity-time");
+  await runtimeSwitch(page).hover();
+  await expect(stamp).toHaveCSS("opacity", "1");
+  const restingBox = await preview.boundingBox();
+  await preview.hover();
+  await expect(stamp).toHaveCSS("opacity", "1");
+  await expect(preview).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  expect(await preview.boundingBox()).toEqual(restingBox);
+  await runtimeSwitch(page).hover();
+  await preview.focus();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Shift+Tab");
+  await expect(stamp).toHaveCSS("opacity", "1");
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.screenshot({
     path: testInfo.outputPath("watching-recent-events.png"),
@@ -34,7 +64,9 @@ test("The Attention tab fits both themes and sizes and manages existing watches 
       }, theme);
       await expect(runtimeSwitch(page)).toBeInViewport();
       await expect(
-        page.getByRole("switch", { name: "Watch Release discussion" }),
+        page.getByRole("button", {
+          name: "Watch status for Release discussion",
+        }),
       ).toBeInViewport();
       expect(
         await pane.evaluate((el) => el.scrollWidth <= el.clientWidth),
@@ -47,24 +79,32 @@ test("The Attention tab fits both themes and sizes and manages existing watches 
   await runtime.focus();
   await page.keyboard.press("Space");
   await expect(runtime).toHaveAttribute("aria-checked", "false");
-  await expect(page.getByText("Paused on this device").first()).toBeVisible();
+  await expect(page.getByText("Paused", { exact: true }).first()).toBeVisible();
   await expect(
-    page.getByRole("switch", { name: "Watch Release discussion" }),
+    page.getByRole("button", { name: "Watch status for Release discussion" }),
   ).toBeVisible();
   await page.keyboard.press("Space");
   await expect(runtime).toHaveAttribute("aria-checked", "true");
-  const toggle = page.getByRole("switch", {
-    name: "Watch example/project#42",
-  });
-  await toggle.focus();
-  await page.keyboard.press("Space");
-  await expect(toggle).toHaveAttribute("aria-checked", "false");
   const details = page.getByRole("button", {
     name: "Details for example/project#42",
+    exact: true,
   });
   await details.focus();
   await page.keyboard.press("Enter");
   await expect(details).toHaveAttribute("aria-expanded", "true");
+  await page
+    .getByRole("button", { name: "Watch status for example/project#42" })
+    .click();
+  const toggle = page.getByRole("menuitem", {
+    name: "Pause",
+  });
+  await toggle.focus();
+  await page.keyboard.press("Space");
+  await expect(toggle).toHaveAttribute("aria-disabled", "true");
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("button", { name: "Source details for example/project#42" })
+    .click();
   await expect(
     page.getByRole("link", { name: "Open project#42" }),
   ).toHaveAttribute("href", "https://github.com/example/project/pull/42");
@@ -84,20 +124,19 @@ test("watch and interest deletion restore focus without taking it from another c
 }) => {
   await page.goto("/tests/fixtures/agent-attention.html");
   const pane = page.getByRole("region", { name: "Attention", exact: true });
-  const remove = page.getByRole("button", {
+  const remove = page.getByRole("menuitem", {
     name: "Delete Release discussion",
   });
-  await page.mouse.move(1, 1);
-  await expect(remove.locator("..")).toHaveCSS("opacity", "0");
-  await remove.locator("xpath=ancestor::li").hover();
-  await expect(remove.locator("..")).toHaveCSS("opacity", "1");
-  await page.mouse.move(1, 1);
-  await page.getByRole("switch", { name: "Watch Release discussion" }).focus();
-  await page.keyboard.press("Tab");
+  await expect(remove).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Watch status for Release discussion" })
+    .click();
+  await expect(remove).toBeVisible();
+  await page.getByRole("menuitem", { name: "Pause", exact: true }).focus();
+  await page.keyboard.press("ArrowDown");
   await expect(remove).toBeFocused();
   await page.evaluate(() => window.attentionFixture.holdSave());
   await remove.focus();
-  await expect(remove.locator("..")).toHaveCSS("opacity", "1");
   await page.keyboard.press("Enter");
   try {
     await expect
@@ -135,6 +174,9 @@ test("watch and interest deletion restore focus without taking it from another c
   await expect(pane).toBeFocused();
 
   await page.reload();
+  await page
+    .getByRole("button", { name: "Watch status for Release discussion" })
+    .click();
   await page.evaluate(() => window.attentionFixture.holdSave());
   await remove.focus();
   await page.keyboard.press("Enter");
@@ -164,10 +206,14 @@ test.describe("touch delete actions", () => {
     expect(await page.evaluate(() => matchMedia("(hover: none)").matches)).toBe(
       true,
     );
-    const remove = page.getByRole("button", {
+    const remove = page.getByRole("menuitem", {
       name: "Delete Release discussion",
     });
-    await expect(remove.locator("..")).toHaveCSS("opacity", "1");
+    await expect(remove).toHaveCount(0);
+    await page
+      .getByRole("button", { name: "Watch status for Release discussion" })
+      .tap();
+    await expect(remove).toBeVisible();
     await remove.tap();
     await expect(remove).toHaveCount(0);
     const interest = page.getByRole("button", {
