@@ -62,6 +62,37 @@ export type ParticipantPolicy = Readonly<{
   makePrimary(channelId: string, pubkey: string): Promise<void>;
   maxRecipients?: number;
 }>;
+/** A session skill the task source offers for a `/` query; the host makes the
+ * chip, with the query's target. */
+export type TaskSkillCandidate = Readonly<{
+  id: string;
+  label: string;
+  detail?: string;
+}>;
+/** `/` in a task chat. `target` is the message's one tagged agent, else the
+ * task primary. */
+export type TaskSkills = Readonly<{
+  load(
+    input: Readonly<{
+      binding: SoloRegionBinding;
+      channelId: string;
+      target: string;
+      query: string;
+    }>,
+    signal: AbortSignal,
+  ): Promise<
+    Readonly<{ items: readonly TaskSkillCandidate[]; status?: string }>
+  >;
+  /** Rechecked synchronously when the user chooses `id`. */
+  selectable(
+    input: Readonly<{
+      binding: SoloRegionBinding;
+      channelId: string;
+      target: string;
+      id: string;
+    }>,
+  ): boolean;
+}>;
 export type SoloTaskMode = Readonly<{
   prepare(draft: TaskDraft, signal: AbortSignal): Promise<TaskPrepareResult>;
   /** Atomic exact-preparation claim. Only "start" permits a new first event. */
@@ -100,6 +131,7 @@ export type SoloTaskMode = Readonly<{
     }>,
   ): boolean;
   participants: ParticipantPolicy;
+  skills?: TaskSkills;
   header?: ComponentType<
     (
       | ({ draft: TaskDraft } & TaskDraftControls)

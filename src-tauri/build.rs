@@ -173,6 +173,7 @@ fn main() {
             "plugin_host_mcp_close",
             "plugin_host_read_file",
             "plugin_host_resolve_directory",
+            "plugin_host_inspect_path",
             "plugin_host_repository_folders",
             "oauth_callback_begin",
             "oauth_callback_wait",

@@ -84,3 +84,9 @@ Folder and skill chips reach the source as `TaskDraft.references`, in document
 order. Host task sends, replies, queued follow-ups and first events sign them as
 one `nexus.tokens.v1` tag. Publication refuses that tag outside a task chat,
 on an informational notice, or with a skill whose target is not a recipient.
+
+`SoloTaskMode.skills` supplies `/` candidates in a task chat. The host resolves
+the target: the message's one tagged agent, else the task primary. It shows
+"Tag one agent per message" for more than one. It calls `load` once per query,
+makes each `nexus.skill` chip with that target, and asks `selectable` again
+when the user chooses one. A task draft shows that skills need a started task.
