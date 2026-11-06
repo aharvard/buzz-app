@@ -1303,7 +1303,9 @@ first-channel fallbacks wait. The relay's membership hints can still add a new
 member to their starter channel before their welcome channel, so a fallback
 opened while no welcome channel is listed is provisional: a welcome channel that
 arrives within ten seconds of the channel list first loading replaces it, unless
-the viewer has clicked or typed in Messages or opened anything else meanwhile.
+the viewer has clicked or typed anywhere in the window or opened anything else,
+Settings included, meanwhile. Focus the viewer has moved outside Messages stays
+where it is.
 The welcome channel's timeline starts with a
 welcome card for every viewer, even with no messages: the community name and its
 custom message, or the default one. The card is not a message, so it has no

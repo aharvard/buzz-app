@@ -83,13 +83,15 @@ function linkRanges(text: string, rich: readonly SourceRange[]) {
 /** Where a paste lands: over `start`–`end` of the draft text `source`. */
 type PasteAt = SourceRange & { source: string };
 
-/** Whether `text`, pasted as is, lands inside Markdown code, a link, or a link
- * destination still being typed. */
-function pastedIntoMarkup(text: string, { source, start, end }: PasteAt) {
+/** Whether `text`, pasted as is, stands alone in prose: at the start of the
+ * draft or after whitespace, at its end or before whitespace, and not inside
+ * Markdown code or a link. A paste joined to other text, such as an unclosed
+ * code span, a bare URL or a link destination being typed, does not. */
+function pastedAlone(text: string, { source, start, end }: PasteAt) {
   const before = source.slice(0, start);
-  // `[label](` typed so far, perhaps with part of the destination.
-  if (/\]\(<?[^\s()<>]*$/.test(before)) return true;
-  const after = before + text + source.slice(end);
+  const rest = source.slice(end);
+  if (!/(^|\s)$/.test(before) || !/^(\s|$)/.test(rest)) return false;
+  const after = before + text + rest;
   const pasted = { start, end: start + text.length };
   const spans = [
     ...markdownRanges(after).literal,
@@ -98,7 +100,7 @@ function pastedIntoMarkup(text: string, { source, start, end }: PasteAt) {
       end: position?.end.offset ?? 0,
     })),
   ];
-  return spans.some(
+  return !spans.some(
     (span) => pasted.start > span.start && pasted.end < span.end,
   );
 }
@@ -107,7 +109,7 @@ function pastedIntoMarkup(text: string, { source, start, end }: PasteAt) {
  * A pasted npub, bare as Copy npub writes it or as a `nostr:` URI, becomes an
  * identity link labelled with the person's name when it is known, so it shows
  * as a chip. Like every identity link here, it notifies no one. Pasted into
- * Markdown code or a link, it stays as pasted.
+ * Markdown code or a link, or joined to other text, it stays as pasted.
  */
 function identityPaste(
   text: string,
@@ -117,7 +119,7 @@ function identityPaste(
   const npub = text.trim().replace(/^nostr:/, "");
   const target = `nostr:${npub}`;
   const pubkey = profileKey(target);
-  if (!pubkey || pastedIntoMarkup(text, at)) return text;
+  if (!pubkey || !pastedAlone(text, at)) return text;
   const name = names?.resolve(pubkey) ?? formatPublicKey(pubkey) ?? npub;
   return profileMentionLink(`@${name}`, target);
 }

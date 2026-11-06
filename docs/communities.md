@@ -166,8 +166,10 @@ text, as when editing a sent message, and formatting applied in the editor is
 written as Markdown. `[@Name](nostr:npub…)` identity links show the person
 without notifying them; a pasted npub from **Copy npub**, bare or as a
 `nostr:` URI, becomes one, labelled with the person's name when it is known.
-Pasted into Markdown code or a link, including a link destination being typed
-after `[@Name](`, it stays as pasted.
+That happens only when it is pasted as a word of its own, with whitespace or
+the start or end of the message on each side, outside Markdown code and links.
+Anywhere else, such as after `[@Name](`, an unclosed backtick or a URL being
+typed, it stays as pasted.
 Channel or message links pasted from **Copy link** show as chips in the editor,
 and as linked names in the preview, and open in place for members. It takes
 1–4,000 characters, with no control characters other than line breaks and tabs.

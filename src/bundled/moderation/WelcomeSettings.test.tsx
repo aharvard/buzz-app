@@ -422,18 +422,23 @@ it("keeps an npub pasted as a link destination being typed, so the link complete
   );
 });
 
-it("keeps an npub pasted between backticks as literal code", async () => {
+it.each([
+  ["inside a code span", "Key: `id ", " here`"],
+  ["after an unclosed backtick", "Key: `", ""],
+  ["inside a link label", "[see ", " here](https://example.com)"],
+  ["completing a bare URL", "https://primal.net/p/", ""],
+])("keeps an npub pasted %s as pasted", async (_, before, after) => {
   const alice = "b".repeat(64);
   const npub = npubEncode(alice);
   const { setLanding, user } = setup({ names: { [alice]: "Alice" } });
   await waitFor(() => expect(messageField()).toHaveValue("Hi there"));
-  pasteIntoMessage(npub, "Key: `", "`");
-  expect(messageField()).toHaveValue(`Key: \`${npub}\``);
+  pasteIntoMessage(npub, before, after);
+  expect(messageField()).toHaveValue(before + npub + after);
   await user.click(await screen.findByRole("button", { name: "Save" }));
   await waitFor(() =>
     expect(setLanding).toHaveBeenCalledWith(
       lobby,
-      welcome(`Key: \`${npub}\``),
+      welcome(before + npub + after),
       expect.any(AbortSignal),
       expect.any(Function),
     ),

@@ -368,11 +368,11 @@ function workspace(
   );
   const { rerender } = render(page());
   /** Re-route the mounted page; `undefined` returns to the unrouted workspace. */
-  const visit = (target?: OpenTarget) =>
+  const visit = (target?: OpenTarget, entryId = "visit") =>
     rerender(
       page(
         target && {
-          entryId: "visit",
+          entryId,
           target,
           signal: new AbortController().signal,
           position: () => undefined,
@@ -386,7 +386,14 @@ function workspace(
         },
       ),
     );
-  return { owner, viewer, authority, scope: snapshot.scope, visit };
+  return {
+    owner,
+    viewer,
+    authority,
+    scope: snapshot.scope,
+    navigator,
+    visit,
+  };
 }
 
 it("opens the community's auto-join channel first when nothing is saved", async () => {
@@ -659,12 +666,23 @@ it("selects a default channel the relay adds after the page opened", async () =>
 });
 
 /** A new member's empty first list, then a membership hint confirming their
- * starter channel on its own read, as the relay's hints can arrive. */
-async function starterConfirmedFirst() {
+ * starter channel on its own read, as the relay's hints can arrive. Routed,
+ * the page shows the navigator's current visit, as the host routes Messages. */
+async function starterConfirmedFirst(routed = false) {
   const viewer = keypair(),
     authority = keypair();
   const events: RelayEvent[] = [];
-  const { owner } = workspace(events, viewer, authority);
+  const { owner, navigator, visit } = workspace(events, viewer, authority);
+  if (routed)
+    visit(
+      {
+        version: 1,
+        kind: "page",
+        pluginId: "buzz.channels",
+        pageId: "channels",
+      },
+      navigator.snapshot().entry.id,
+    );
   await vi.waitFor(() =>
     expect(owner.session.channels.list().status).toBe("ready"),
   );
@@ -677,7 +695,9 @@ async function starterConfirmedFirst() {
   );
   await act(() => owner.session.channels.resolve?.(["alpha"]));
   const alpha = await screen.findByRole("textbox", { name: "Message #Alpha" });
-  /** The welcome channel's hint, confirmed on a later read. */
+  /** The welcome channel's hint, confirmed on a later read. Returns once the
+   * page has rendered the confirmed list and run its effects, so the switch
+   * has happened or never will; the first test below proves it. */
   const confirmWelcome = async () => {
     events.push(
       roster(authority, "beta", [viewer.pubkey]),
@@ -693,37 +713,90 @@ async function starterConfirmedFirst() {
           ?.landing,
       ).toBe(true),
     );
+    await act(async () => {});
   };
-  return { alpha, confirmWelcome };
+  return { alpha, navigator, confirmWelcome };
+}
+
+/** The starter channel kept: shown, and its history entry untouched. */
+function expectStarterKept(navigator: Navigation, shown = "home") {
+  expect(navigator.snapshot().entry.target.kind).toBe(shown);
+  expect(screen.getByRole("textbox", { name: "Message #Alpha" })).toBeVisible();
+  expect(screen.queryByRole("textbox", { name: "Message #Beta" })).toBeNull();
 }
 
 it("opens a welcome channel confirmed after the starter channel it opened first", async () => {
-  const { confirmWelcome } = await starterConfirmedFirst();
+  const { navigator, confirmWelcome } = await starterConfirmedFirst();
   await confirmWelcome();
+  // Asserted at once: the barrier the tests below rely on covers the switch.
+  // It replaces the opening, leaving no way back to the starter channel.
+  expect(navigator.snapshot()).toMatchObject({
+    canGoBack: false,
+    entry: { target: { kind: "conversation", channelId: "beta" } },
+  });
   await screen.findByRole("textbox", { name: "Message #Beta" });
   expect(screen.getByRole("region", { name: "Welcome" })).toBeVisible();
   expect(screen.queryByRole("textbox", { name: "Message #Alpha" })).toBeNull();
 });
 
-it("keeps the starter channel once the reader clicks in it, though the welcome channel follows", async () => {
-  const user = userEvent.setup();
-  const { alpha, confirmWelcome } = await starterConfirmedFirst();
-  await user.click(alpha);
+it.each([
+  [
+    "clicks in it",
+    async (alpha: HTMLElement) => {
+      await userEvent.setup().click(alpha);
+    },
+  ],
+  [
+    "presses a key outside Messages",
+    async () => {
+      render(<button type="button">Sidebar</button>);
+      fireEvent.keyDown(screen.getByRole("button", { name: "Sidebar" }), {
+        key: "Tab",
+      });
+    },
+  ],
+])(
+  "keeps the starter channel once the reader %s, though the welcome channel follows",
+  async (_, input) => {
+    const { alpha, navigator, confirmWelcome } = await starterConfirmedFirst();
+    await input(alpha);
+    await confirmWelcome();
+    expectStarterKept(navigator);
+  },
+);
+
+it.each([
+  ["a routed", true],
+  ["an unrouted", false],
+])(
+  "leaves Settings open over %s starter channel when the welcome channel follows",
+  async (_, routed) => {
+    const { navigator, confirmWelcome } = await starterConfirmedFirst(routed);
+    // Messages stays mounted with its visit behind Settings, as the host keeps it.
+    void navigator.open({ version: 1, kind: "settings" });
+    await confirmWelcome();
+    expectStarterKept(navigator, "settings");
+  },
+);
+
+it("leaves focus outside Messages where it is when the welcome channel replaces the starter channel", async () => {
+  const { confirmWelcome } = await starterConfirmedFirst();
+  render(<button type="button">Sidebar</button>);
+  const sidebar = screen.getByRole("button", { name: "Sidebar" });
+  // Focus can move without a click or key press, as when a dialog returns it.
+  act(() => sidebar.focus());
   await confirmWelcome();
-  expect(screen.getByRole("textbox", { name: "Message #Alpha" })).toBeVisible();
-  expect(screen.queryByRole("textbox", { name: "Message #Beta" })).toBeNull();
+  await screen.findByRole("textbox", { name: "Message #Beta" });
+  expect(sidebar).toHaveFocus();
 });
 
 it("keeps the starter channel when the welcome channel follows after the opening window", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {
-    const { confirmWelcome } = await starterConfirmedFirst();
+    const { navigator, confirmWelcome } = await starterConfirmedFirst();
     await act(() => vi.advanceTimersByTimeAsync(10_000));
     await confirmWelcome();
-    expect(
-      screen.getByRole("textbox", { name: "Message #Alpha" }),
-    ).toBeVisible();
-    expect(screen.queryByRole("textbox", { name: "Message #Beta" })).toBeNull();
+    expectStarterKept(navigator);
   } finally {
     vi.useRealTimers();
   }

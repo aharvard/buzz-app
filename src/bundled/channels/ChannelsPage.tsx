@@ -620,28 +620,46 @@ function ChannelWorkspace({
       (emptyList && !noChannels));
   // The relay's membership hints can confirm a new member's starter channel
   // before their welcome channel, so a fallback chosen with no welcome channel
-  // listed is provisional. Until the reader acts in this workspace or moves to
-  // another visit, a welcome channel arriving within ENROLLMENT_WAIT_MS of the
-  // list first loading replaces it.
+  // listed is provisional. Until the reader clicks or types anywhere or moves
+  // to another visit, a welcome channel arriving within ENROLLMENT_WAIT_MS of
+  // the list first loading replaces it.
   const listed = useRef<number>(undefined);
   const provisional = useRef<{
     channelId: string;
     entryId: string | undefined;
+    /** Removes the input listeners that settle it. */
+    listening: AbortController;
   }>(undefined);
+  const settleDefault = useCallback(() => {
+    provisional.current?.listening.abort();
+    provisional.current = undefined;
+  }, []);
+  useEffect(() => settleDefault, [settleDefault]);
   useLayoutEffect(() => {
     if (list.status === "ready") listed.current ??= Date.now();
     if (
       provisional.current &&
       provisional.current.entryId !== navigation?.entryId
     )
-      provisional.current = undefined;
+      settleDefault();
     // An open draft resolves nothing; keep the choice for when it closes.
     if (requestedDestination) {
-      if (!requestedChannel && requestedDestination === fallback)
+      if (!requestedChannel && requestedDestination === fallback) {
+        settleDefault();
+        // A click or key press anywhere settles it, such as tabbing through
+        // the sidebar or typing in a field outside Messages.
+        const listening = new AbortController();
+        for (const type of ["pointerdown", "keydown"])
+          document.addEventListener(type, settleDefault, {
+            capture: true,
+            signal: listening.signal,
+          });
         provisional.current = {
           channelId: requestedDestination.id,
           entryId: navigation?.entryId,
+          listening,
         };
+      }
       chosen.current = requestedDestination.id;
     }
     visiblePreview.current =
@@ -649,28 +667,40 @@ function ChannelWorkspace({
         ? { channelId: current.id, queries }
         : undefined;
   });
-  const settleDefault = () => {
-    provisional.current = undefined;
-  };
   const welcomeId = welcomeChannel?.id;
   const currentId = current?.id;
   const visitFocus = navigation?.focus;
   useEffect(() => {
     const choice = provisional.current;
     if (!choice || !welcomeId) return;
-    provisional.current = undefined;
+    settleDefault();
+    const shown = navigator?.snapshot().entry;
     if (
-      currentId === choice.channelId &&
-      welcomeId !== choice.channelId &&
-      listed.current !== undefined &&
-      Date.now() - listed.current < ENROLLMENT_WAIT_MS
+      currentId !== choice.channelId ||
+      welcomeId === choice.channelId ||
+      listed.current === undefined ||
+      Date.now() - listed.current >= ENROLLMENT_WAIT_MS ||
+      // Only the provisional visit while it is shown: never Settings over it,
+      // nor a visit opened since. An unrouted workspace has no visit to match,
+      // so only Settings is checked.
+      (choice.entryId === undefined
+        ? shown?.target.kind === "settings"
+        : shown?.id !== choice.entryId)
     )
-      // The same opening, corrected: no return path to the fallback.
-      navigate(welcomeId, {
-        replace: true,
-        ...(visitFocus && { focus: visitFocus }),
-      });
-  }, [welcomeId, currentId, visitFocus, navigate]);
+      return;
+    // Focus the reader has moved out of Messages stays where it is.
+    const active = document.activeElement;
+    const focus =
+      active &&
+      active !== document.body &&
+      !historyContainer.current
+        ?.closest("[data-channel-workspace]")
+        ?.contains(active)
+        ? "preserve"
+        : visitFocus;
+    // The same opening, corrected: no return path to the fallback.
+    navigate(welcomeId, { replace: true, ...(focus && { focus }) });
+  }, [welcomeId, currentId, visitFocus, navigate, navigator, settleDefault]);
   // Sidebar routing can update the same mounted page. Keep its saved default
   // aligned with the resolved conversation, not only page-local clicks.
   useEffect(() => {
@@ -2251,9 +2281,6 @@ function ChannelWorkspace({
       ref={split.ref}
       style={split.style}
       className={`${styles.board} ${panelStyles.splitMotion}`}
-      // The reader acting here keeps a provisional default; see `provisional`.
-      onPointerDownCapture={settleDefault}
-      onKeyDownCapture={settleDefault}
     >
       {current && membersOpen && (
         <ChannelMembersDialog
