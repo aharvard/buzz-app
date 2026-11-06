@@ -136,6 +136,7 @@ function harness(role = "owner", type = "stream", owners = 1) {
   });
   const removed = vi.fn();
   const acceptDiscovery = vi.fn();
+  const acceptDirectory = vi.fn();
   const owner = createChannelLifecycle({
     reader: { read },
     writer: { sign, publish },
@@ -144,6 +145,7 @@ function harness(role = "owner", type = "stream", owners = 1) {
     canAccess: () => active,
     removed,
     acceptDiscovery,
+    acceptDirectory,
   });
   return {
     owner,
@@ -152,6 +154,7 @@ function harness(role = "owner", type = "stream", owners = 1) {
     publish,
     removed,
     acceptDiscovery,
+    acceptDirectory,
     record,
     roles,
     metadata,
@@ -2191,6 +2194,32 @@ describe("auto-join switch", () => {
         "#d": [id],
       });
       expect(h.acceptDiscovery).not.toHaveBeenCalled();
+      // The browsing directory lists it, so it takes the confirmed flag.
+      expect(h.acceptDirectory).toHaveBeenCalledOnce();
+      expect(
+        h.acceptDirectory.mock.calls[0]?.[0]?.[0]?.tags.some(
+          ([key]: string[]) => key === "auto_join",
+        ),
+      ).toBe(true);
+    } finally {
+      h.owner.dispose();
+    }
+  });
+
+  it("hands a strong metadata read to the directory, and to discovery only for a channel the viewer is in", async () => {
+    const h = publicStream();
+    try {
+      h.setEvents([h.metadata(true), ...h.getEvents().slice(1)]);
+      // A check of a starter step reads its flag from the same read.
+      await expect(h.owner.capability.readLanding(id)).resolves.toMatchObject({
+        autoJoin: true,
+      });
+      expect(h.acceptDiscovery).toHaveBeenCalledOnce();
+      expect(h.acceptDirectory).toHaveBeenCalledOnce();
+      h.deny();
+      await h.owner.capability.readLanding(id);
+      expect(h.acceptDiscovery).toHaveBeenCalledOnce();
+      expect(h.acceptDirectory).toHaveBeenCalledTimes(2);
     } finally {
       h.owner.dispose();
     }
@@ -2349,21 +2378,12 @@ describe("welcome channel", () => {
     const h = harness("member");
     h.publish.mockImplementation(async () => {
       h.setEvents([
-        h.record(39000, [
-          ["d", id],
-          ["t", "stream"],
-          ["public"],
-          ["landing"],
-        ]),
+        h.record(39000, [["d", id], ["t", "stream"], ["public"], ["landing"]]),
         ...h.getEvents().slice(1),
       ]);
     });
     h.setEvents([
-      h.record(39000, [
-        ["d", id],
-        ["t", "stream"],
-        ["public"],
-      ]),
+      h.record(39000, [["d", id], ["t", "stream"], ["public"]]),
       ...h.getEvents().slice(1),
     ]);
     try {
