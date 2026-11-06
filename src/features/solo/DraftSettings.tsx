@@ -42,7 +42,9 @@ export function DraftSettings({
   save(canvas: string, ttlSeconds?: number, name?: string): void;
   close(): void;
 }) {
-  const [value, setValue] = useState(typeof name === "string" ? name : "");
+  // A persisted name arrives unchecked; a malformed one opens blank.
+  const openedName = typeof name === "string" ? name : "";
+  const [value, setValue] = useState(openedName);
   const normalized = canonicalDetailsName(value);
   const nameError = normalized
     ? detailsDraftErrors({
@@ -99,7 +101,7 @@ export function DraftSettings({
     <ChatSettingsDialog
       dismissOnOutsideClick={false}
       dirty={
-        canonicalDetailsName(value) !== canonicalDetailsName(name) ||
+        canonicalDetailsName(value) !== canonicalDetailsName(openedName) ||
         ttl !== ttlSeconds ||
         (loaded && instructionsCanvas(workspace, raw) !== opened)
       }
