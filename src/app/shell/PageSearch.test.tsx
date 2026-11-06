@@ -911,14 +911,12 @@ it("finds and opens saved conversations while the community is unreachable or st
     expect(within(dialog).queryByText(/^Search in Alpha/)).toBeNull();
     expect(within(dialog).queryByRole("tab", { name: "Channels" })).toBeNull();
     // The author picker offers only people already known, and says the
-    // people search that needs the relay is unavailable.
+    // people search that needs the relay waits for the connection.
     for (const text of ["from:al", "in:@al", "in:beta from:al"]) {
       fireEvent.change(field, { target: { value: text } });
       await act(async () => vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS));
       expect(
-        within(dialog).getByText(
-          "People search is unavailable. Try a longer name.",
-        ),
+        within(dialog).getByText("Connect to this community to search people."),
       ).toBeVisible();
     }
     expect(query).not.toHaveBeenCalled();
@@ -991,7 +989,7 @@ it("finds and opens saved conversations while the community is unreachable or st
     });
     await act(async () => vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS));
     expect(
-      screen.getByText("People search is unavailable. Try a longer name."),
+      screen.getByText("Connect to this community to search people."),
     ).toBeVisible();
     connection = {
       status: "ready",
@@ -1004,7 +1002,9 @@ it("finds and opens saved conversations while the community is unreachable or st
     });
     await act(async () => vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS));
     expect(screen.getByText("Searching people…")).toBeVisible();
-    expect(screen.queryByText(/^People search is unavailable/)).toBeNull();
+    expect(
+      screen.queryByText("Connect to this community to search people."),
+    ).toBeNull();
   } finally {
     vi.useRealTimers();
     cleanup();

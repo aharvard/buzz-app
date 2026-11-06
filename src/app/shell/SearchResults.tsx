@@ -624,8 +624,8 @@ export function SearchResults({
         const members = effectiveChannelId
           ? (session.channels.get?.(effectiveChannelId)?.members ?? [])
           : [];
-        // Offline, the picker offers only members and profiles already known,
-        // and people search reads as unavailable.
+        // Offline, the picker offers only members and profiles already known.
+        // No longer name finds more, so it asks for the connection instead.
         if (members.length && !savedOnly) {
           try {
             await session.profiles.ensure(members, "foreground");
@@ -635,7 +635,7 @@ export function SearchResults({
           }
         }
         let remote: readonly EventData[] = [];
-        let lookupFailed = savedOnly && searchable(authorNeedle);
+        let lookupFailed = false;
         if (!savedOnly && searchable(authorNeedle)) {
           try {
             remote = await session.searchProfiles(authorNeedle, {
@@ -1458,13 +1458,15 @@ export function SearchResults({
               ? undefined
               : !authorAnswer
                 ? "Searching people…"
-                : authorAnswer.lookupFailed
-                  ? "People search is unavailable. Try a longer name."
-                  : authorNeedle && !searchable(authorNeedle)
-                    ? `Type at least ${SEARCH_MIN_CHARS} characters to search people.`
-                    : authorNeedle
-                      ? "No matching people. Try a different name."
-                      : "Type a name to search people.",
+                : authorAnswer.savedOnly
+                  ? "Connect to this community to search people."
+                  : authorAnswer.lookupFailed
+                    ? "People search is unavailable. Try a longer name."
+                    : authorNeedle && !searchable(authorNeedle)
+                      ? `Type at least ${SEARCH_MIN_CHARS} characters to search people.`
+                      : authorNeedle
+                        ? "No matching people. Try a different name."
+                        : "Type a name to search people.",
           },
           {
             label: "Agents",

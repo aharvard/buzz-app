@@ -3050,6 +3050,40 @@ it("looks up an author by name only from two characters", async () => {
   }
 });
 
+it("asks for the connection, not more text, when a saved session's author picker finds no one", async () => {
+  vi.useFakeTimers();
+  const relay = keypair(),
+    viewer = keypair();
+  const owner = createRelaySession(
+    scriptedTransport(viewer.pubkey, relay.pubkey).transport,
+  );
+  const searchProfiles = vi.fn(async () => []);
+  const props = {
+    session: { ...owner.session, searchProfiles } as typeof owner.session,
+    onQueryChange: () => {},
+    input: createRef<HTMLInputElement>(),
+    pages: [],
+    openConversation: () => {},
+    offline: <p>Only saved conversations are searched.</p>,
+  };
+  try {
+    const view = render(<SearchResults {...props} query="from:a" />);
+    for (const query of ["from:a", "from:al"]) {
+      view.rerender(<SearchResults {...props} query={query} />);
+      await act(async () => vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS));
+      expect(
+        screen.getByText("Connect to this community to search people."),
+      ).toBeVisible();
+      expect(screen.queryByText(/^Type at least/)).toBeNull();
+      expect(screen.queryByText(/Try a longer name/)).toBeNull();
+    }
+    expect(searchProfiles).not.toHaveBeenCalled();
+  } finally {
+    cleanup();
+    owner.dispose();
+  }
+});
+
 it("searches the people directory only from two characters", async () => {
   vi.useFakeTimers();
   const relay = keypair(),
