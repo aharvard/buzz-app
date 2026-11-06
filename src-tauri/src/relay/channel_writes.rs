@@ -95,22 +95,24 @@ fn welcome(text: &str) -> bool {
                 .all(|c| matches!(c, '\n' | '\t') || !c.is_control()))
 }
 /// The welcome title is `""` (restore the default) or 1–120 scalar values on
-/// one line with no control characters, matching the relay's rules.
+/// one line: no control characters and no Unicode line or paragraph
+/// separator, matching the relay's rules.
 fn welcome_title(text: &str) -> bool {
     text.is_empty()
         || (!text.trim().is_empty()
             && text.chars().count() <= 120
-            && !text.chars().any(char::is_control))
+            && !text
+                .chars()
+                .any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')))
 }
 fn lifecycle(event: &EventTemplate) -> bool {
     // Owners/admins set the community's welcome channel with its full state:
-    // message and title, or the older form without a title, which keeps it.
-    if event.kind == 9002 && common(event) && matches!(event.tags.len(), 3 | 4) {
+    // message and title, each `""` for its default.
+    if event.kind == 9002 && common(event) && event.tags.len() == 4 {
         return tag(event, 0, "h").is_some_and(uuid)
             && tag(event, 1, "landing") == Some("true")
             && tag(event, 2, "welcome").is_some_and(welcome)
-            && (event.tags.len() == 3
-                || tag(event, 3, "welcome_title").is_some_and(welcome_title));
+            && tag(event, 3, "welcome_title").is_some_and(welcome_title);
     }
     if !matches!(event.kind, 9002 | 9008 | 9021 | 9022 | 41012)
         || !common(event)
@@ -520,7 +522,12 @@ mod boundary_tests {
             "kind": 9002,
             "created_at": 1700000010,
             "content": "",
-            "tags": [["h", channel], ["landing", "true"], ["welcome", ""]]
+            "tags": [
+                ["h", channel],
+                ["landing", "true"],
+                ["welcome", ""],
+                ["welcome_title", ""]
+            ]
         });
         let longest = "é".repeat(4000);
         for text in [
@@ -547,21 +554,10 @@ mod boundary_tests {
             command["tags"][2][1] = text;
             assert!(validate("channel-lifecycle", &command, None).is_err());
         }
-        // The full-state form adds the title; the three-tag form keeps it.
-        let titled = serde_json::json!({
-            "kind": 9002,
-            "created_at": 1700000010,
-            "content": "",
-            "tags": [
-                ["h", channel],
-                ["landing", "true"],
-                ["welcome", ""],
-                ["welcome_title", ""]
-            ]
-        });
+        // The message may span lines; the title is one line.
         let longest_title = "é".repeat(120);
         for title in ["", "Welcome to Acme", longest_title.as_str()] {
-            let mut command = titled.clone();
+            let mut command = event.clone();
             command["tags"][3][1] = serde_json::json!(title);
             assert!(validate("channel-lifecycle", &command, None).is_ok());
             assert!(validate("channel-details", &command, None).is_err());
@@ -572,13 +568,16 @@ mod boundary_tests {
             serde_json::json!("two\nlines"),
             serde_json::json!("tab\there"),
             serde_json::json!("c1\u{85}"),
+            serde_json::json!("line\u{2028}sep"),
+            serde_json::json!("para\u{2029}sep"),
             Value::Null,
         ] {
-            let mut command = titled.clone();
+            let mut command = event.clone();
             command["tags"][3][1] = title;
             assert!(validate("channel-lifecycle", &command, None).is_err());
         }
         for tags in [
+            serde_json::json!([["h", channel], ["landing", "true"], ["welcome", ""]]),
             serde_json::json!([
                 ["h", channel],
                 ["landing", "true"],

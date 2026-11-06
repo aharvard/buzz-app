@@ -157,15 +157,17 @@ starts empty and must be chosen before Save. The picker lists public, unarchived
 stream channels.
 
 The title starts with the custom title or the default, "Welcome to" and the
-community's name: 1–120 characters on one line. The message starts with the
+viewer's own name for the community: 1–120 characters on one line. The message starts with the
 custom text or the default. It is Markdown, rendered as messages are:
 `[@Name](nostr:npub…)` identity links show the person without notifying them,
 and channel or message links pasted from **Copy link** open in place. It takes
 1–4,000 characters, with no control characters other than line breaks and tabs.
 Both are checked against the relay's rules as the admin types. Line endings are
-normalized and both are trimmed before sending. A title or message matching the
-default is saved as the default rather than as custom text. **Restore defaults**
-resets both in the draft. A preview shows the card as members will see it, with
+normalized and both are trimmed before sending. A message matching the default
+is saved as the default rather than as custom text. The default title depends on
+who is looking, so it is never inferred: an edited title is saved as written, an
+untouched one stays as published, and **Restore defaults** resets both in the
+draft and saves the default title. A preview shows the card as members will see it, with
 its links inert. Save sends the whole state and confirms it as described in
 [channel lifecycle](channels.md#channel-lifecycle). A relay refusal is shown with
 its reason and the draft is kept. A save the relay has not shown yet keeps the

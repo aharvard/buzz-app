@@ -1088,15 +1088,30 @@ it("keeps explicit profile identities visible but inert when Profiles is unavail
   expect(screen.queryByRole("link")).toBeNull();
   expect(view.container.textContent).toContain(target);
   expect(view.container.querySelector("[data-leading-mention]")).toBeNull();
+  // A preview keeps the locator too, unless it asks for the inert chip.
+  view.rerender(
+    <MessageMarkdown
+      {...props(`[@Mic](${target})`, {
+        patch: { mentions: [] },
+        interactive: false,
+      })}
+    />,
+  );
+  expect(screen.queryByRole("button")).toBeNull();
+  expect(screen.queryByRole("link")).toBeNull();
+  expect(view.container.textContent).toContain("Mic");
+  expect(view.container.textContent).toContain(target);
+  expect(view.container.querySelector("[data-mention-kind]")).toBeNull();
 });
 
-it("shows an explicit profile identity as an inert chip in a preview", () => {
+it("shows an explicit profile identity as an inert chip in a preview that asks for one", () => {
   const target = profileTarget(mic);
   const view = renderDom(
     <MessageMarkdown
       {...props(`[@Mic](${target}) says hi`, {
         patch: { mentions: [] },
         interactive: false,
+        inertProfileChips: true,
       })}
     />,
   );

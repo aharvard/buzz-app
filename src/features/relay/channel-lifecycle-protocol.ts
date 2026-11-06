@@ -81,7 +81,7 @@ export function landingTemplate(channelId: string, welcome: WelcomeCommand) {
   return event;
 }
 
-/** The full-state form, or the older form without a title (which keeps it). */
+/** The full-state form: message and title, each `""` for its default. */
 function landingCommand(tags: string[][]) {
   const value = (index: number, name: string) => {
     const tag = tags[index];
@@ -90,9 +90,9 @@ function landingCommand(tags: string[][]) {
       : undefined;
   };
   const message = value(2, "welcome");
-  const title = tags.length === 4 ? value(3, "welcome_title") : "";
+  const title = value(3, "welcome_title");
   return (
-    (tags.length === 3 || tags.length === 4) &&
+    tags.length === 4 &&
     JSON.stringify(tags[1]) === JSON.stringify(["landing", "true"]) &&
     message !== undefined &&
     validWelcomeCommand(message) &&
@@ -112,8 +112,7 @@ export function validateLifecycleTemplate(event: EventTemplate): void {
     !Array.isArray(event.tags) ||
     !(
       event.tags.length === (event.kind === 9002 ? 2 : 1) ||
-      (event.kind === 9002 &&
-        (event.tags.length === 3 || event.tags.length === 4))
+      (event.kind === 9002 && event.tags.length === 4)
     ) ||
     event.tags[0]?.length !== 2 ||
     event.tags[0]?.[0] !== "h"

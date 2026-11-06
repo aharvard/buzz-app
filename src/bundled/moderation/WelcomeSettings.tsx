@@ -53,16 +53,25 @@ const TITLE_MAX = WELCOME_TITLE_MAX_LENGTH.toLocaleString("en-US");
 // Every listed channel is an open stream, so each shows the public icon.
 const ChannelIcon = channelIcon({ channelType: "stream" });
 
-/** Defaults are never stored: a draft part matching one restores it. */
+/**
+ * The default message is never stored: a draft matching it restores it. The
+ * default title is this viewer's name for the community, so it is never
+ * inferred: an untouched title resends what is published, Restore defaults
+ * (`null`) sends the default, and an edited title is sent as written.
+ */
 function commandFor(
-  draft: Readonly<{ text: string; title: string }>,
-  defaultTitle: string,
+  draft: Readonly<{ text: string; title?: string | null }>,
+  publishedTitle: string,
 ): WelcomeCommand {
   const text = normalizeWelcome(draft.text);
-  const title = draft.title.trim();
   return {
     message: text === DEFAULT_WELCOME_MESSAGE ? "" : text,
-    title: title === defaultTitle ? "" : title,
+    title:
+      draft.title === undefined
+        ? publishedTitle
+        : draft.title === null
+          ? ""
+          : draft.title.trim(),
   };
 }
 
@@ -141,8 +150,19 @@ type Load =
   | { status: "ready"; published: Published }
   | { status: "unsupported" }
   | { status: "error"; error: string };
-type Option = Readonly<{ id: string; name: string; autoJoin: boolean }>;
-type Draft = Readonly<{ channelId?: string; text: string; title: string }>;
+type Option = Readonly<{
+  id: string;
+  name: string;
+  autoJoin: boolean;
+  /** In the viewer's roster, which follows the relay's metadata. */
+  joined: boolean;
+}>;
+/** `title` is absent until edited; `null` once Restore defaults is pressed. */
+type Draft = Readonly<{
+  channelId?: string;
+  text: string;
+  title?: string | null;
+}>;
 
 /** Open, active stream channels: the directory's, joined ones it may leave
  * out (such as unlisted ones), and the current welcome channel. The joined
@@ -159,6 +179,7 @@ function eligibleChannels(
         id: channel.id,
         name: channel.name,
         autoJoin: !!channel.autoJoin,
+        joined: false,
       });
   for (const channel of joined)
     if (
@@ -171,10 +192,16 @@ function eligibleChannels(
         id: channel.id,
         name: channel.name,
         autoJoin: !!channel.autoJoin,
+        joined: true,
       });
   const id = current?.channelId;
   if (id && !rows.has(id))
-    rows.set(id, { id, name: current.name ?? id.slice(0, 8), autoJoin: false });
+    rows.set(id, {
+      id,
+      name: current.name ?? id.slice(0, 8),
+      autoJoin: false,
+      joined: false,
+    });
   return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -209,8 +236,6 @@ function WelcomeEditor({
   // The check compares the relay's answer with the draft as it stands then.
   const draftRef = useRef(draft);
   draftRef.current = draft;
-  const defaultTitleRef = useRef(defaultTitle);
-  defaultTitleRef.current = defaultTitle;
   const checkButton = useRef<HTMLButtonElement>(null);
   const messageInput = useRef<HTMLTextAreaElement>(null);
   const mounted = useRef(true);
@@ -257,7 +282,7 @@ function WelcomeEditor({
         };
         // A draft the relay now shows has landed; there is nothing to save.
         const current = draftRef.current;
-        const wanted = current && commandFor(current, defaultTitleRef.current);
+        const wanted = current && commandFor(current, published.title);
         const landed =
           !!wanted &&
           current?.channelId === published.channelId &&
@@ -291,12 +316,26 @@ function WelcomeEditor({
   );
   const channelId = draft ? draft.channelId : published?.channelId;
   const text = draft?.text ?? (published?.welcome || DEFAULT_WELCOME_MESSAGE);
-  const title = draft?.title ?? (published?.title || defaultTitle);
+  const titleDraft = draft?.title;
+  const title =
+    typeof titleDraft === "string"
+      ? titleDraft
+      : titleDraft === null || !published?.title
+        ? defaultTitle
+        : published.title;
   const normalized = normalizeWelcome(text);
   const trimmedTitle = title.trim();
-  const command = commandFor({ text, title }, defaultTitle);
+  const command = commandFor(
+    { text, ...(titleDraft !== undefined ? { title: titleDraft } : {}) },
+    published?.title ?? "",
+  );
   const problem = welcomeTextProblem(normalized);
-  const titleProblem = welcomeTitleProblem(trimmedTitle);
+  // Only an edited title needs checking: a published one passed the relay, and
+  // the default is never sent.
+  const titleProblem =
+    typeof titleDraft === "string"
+      ? welcomeTitleProblem(trimmedTitle)
+      : undefined;
   const dirty =
     !!published &&
     (channelId !== published.channelId ||
@@ -322,7 +361,7 @@ function WelcomeEditor({
     setDraft({
       ...(channelId ? { channelId } : {}),
       text,
-      title,
+      ...(titleDraft !== undefined ? { title: titleDraft } : {}),
       ...patch,
     });
     setSaved(false);
@@ -523,15 +562,14 @@ function WelcomeEditor({
                   onChange={(event) => edit({ text: event.target.value })}
                 />
               </Field>
-              {(normalized !== DEFAULT_WELCOME_MESSAGE ||
-                trimmedTitle !== defaultTitle) && (
+              {(normalized !== DEFAULT_WELCOME_MESSAGE || command.title) && (
                 <div>
                   <Button
                     type="button"
                     variant="ghost"
                     disabled={disabled}
                     onClick={() =>
-                      edit({ text: DEFAULT_WELCOME_MESSAGE, title: defaultTitle })
+                      edit({ text: DEFAULT_WELCOME_MESSAGE, title: null })
                     }
                   >
                     Restore defaults
@@ -631,10 +669,11 @@ type RowError = Readonly<{ enabled: boolean; message: string }>;
 
 /**
  * Immediate preferences: each switch is the relay's `auto_join` flag for one
- * channel, confirmed by a signed readback before it shows. Community owners
- * and admins may flag channels they have not joined, whose confirmed state
- * the card keeps itself. The welcome channel is always joined first, so its
- * row is fixed and its own flag is left as it is.
+ * channel, confirmed by a signed readback before it shows. A joined channel's
+ * row follows the roster. Community owners and admins may also flag channels
+ * they have not joined; the card keeps such a confirmed state itself until the
+ * directory shows it. The welcome channel is always joined first, so its row
+ * is fixed and its own flag is left as it is.
  */
 function StarterChannels({
   channels,
@@ -669,6 +708,18 @@ function StarterChannels({
   );
   const operation = useRef<AbortController>(undefined);
   useEffect(() => () => operation.current?.abort(), []);
+  // A kept state is dropped once the row agrees, or turns out to be joined.
+  useEffect(() => {
+    setConfirmed((current) => {
+      let next: Map<string, boolean> | undefined;
+      for (const [id, enabled] of current) {
+        const row = channels.find((channel) => channel.id === id);
+        if (row && (row.joined || row.autoJoin === enabled))
+          (next ??= new Map(current)).delete(id);
+      }
+      return next ?? current;
+    });
+  }, [channels]);
   const others = channels.filter(
     (channel) => channel.id !== welcomeChannel?.id,
   );
@@ -728,7 +779,9 @@ function StarterChannels({
             />
           )}
           {others.map((channel) => {
-            const checked = confirmed.get(channel.id) ?? channel.autoJoin;
+            const checked = channel.joined
+              ? channel.autoJoin
+              : (confirmed.get(channel.id) ?? channel.autoJoin);
             const error = errors.get(channel.id);
             // Once the flag shows what a failed toggle wanted, it is in effect.
             const shown = error && error.enabled !== checked ? error : undefined;

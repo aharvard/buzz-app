@@ -96,8 +96,18 @@ describe("welcome title", () => {
     expect(welcomeTitleProblem("a".repeat(121))).toBe("long");
     expect(welcomeTitleProblem(" ")).toBe("empty");
     expect(welcomeTitleProblem("\uFEFF")).toBeUndefined();
-    for (const text of ["two\nlines", "tab\t", "cr\r", "del\u007f", "c1\u0085"])
+    for (const text of [
+      "two\nlines",
+      "tab\t",
+      "cr\r",
+      "del\u007f",
+      "c1\u0085",
+      "line\u2028sep",
+      "para\u2029sep",
+    ])
       expect(welcomeTitleProblem(text)).toBe("control");
+    // The message rejects neither separator; only the title is one line.
+    expect(welcomeTextProblem("line\u2028sep")).toBeUndefined();
   });
 
   it("admits the empty default marker only as a command", () => {

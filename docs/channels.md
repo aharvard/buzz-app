@@ -583,7 +583,7 @@ That reread updates the channel list only for a channel the viewer can access.
 The card's welcome form uses the same route for the welcome channel. Each save is
 one `9002` carrying the full state, `landing=true`, `welcome=<text>` and
 `welcome_title=<text>`, each empty for its default; the relay accepts a repeat of
-the current state, and keeps the title when a `welcome_title` tag is absent. Before signing
+the current state. Before signing
 and again before publishing, the lifecycle owner requires fresh relay metadata
 for an active, open stream channel without an expiry. It confirms the save with a
 strong reread of the target's `39000`: the relay advertises a bare `landing` tag
@@ -601,9 +601,9 @@ failure still fails the command; an aborted read alone never confirms it. These 
 do not forcibly interrupt an in-flight native publication IPC.
 Both hosts admit only the exact two-tag `9002` shape with `archived=true` (Archive),
 `archived=false` (Unarchive) or `auto_join=true|false` (a starter switch), and the
-welcome shape: `landing=true`, a `welcome` of 1–4,000 characters (no control
-characters except line breaks and tabs) or empty, then optionally a
-`welcome_title` of 1–120 characters (no control characters) or empty; other values,
+four-tag welcome shape: `landing=true`, a `welcome` of 1–4,000 characters (no
+control characters except line breaks and tabs) or empty, and a `welcome_title`
+of 1–120 characters (no control characters or line separators) or empty; other values,
 extra tags, cross-route commands and
 altered or foreign signatures are rejected. Hosts without this capability display
 an unavailable notice. Native Unarchive, the starter switches and the welcome

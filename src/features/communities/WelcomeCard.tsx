@@ -90,6 +90,7 @@ export function WelcomeMessage({
       onOpenLink={onOpenLink}
       canOpenLink={canOpenLink}
       interactive={interactive}
+      inertProfileChips={!interactive}
     />
   );
 }

@@ -2479,13 +2479,14 @@ describe("welcome channel", () => {
     }
   });
 
-  it("admits only the exact landing command, with or without a title", () => {
+  it("admits only the exact four-tag landing command", () => {
     const base = { kind: 9002, content: "", created_at: 1 };
     for (const tags of [
       [
         ["h", id],
         ["landing", "true"],
         ["welcome", ""],
+        ["welcome_title", ""],
       ],
       [
         ["h", id],
@@ -2502,36 +2503,53 @@ describe("welcome channel", () => {
     ])
       expect(() => validateLifecycleTemplate({ ...base, tags })).not.toThrow();
     for (const tags of [
+      // The older form without a title is no longer admitted.
+      [
+        ["h", id],
+        ["landing", "true"],
+        ["welcome", ""],
+      ],
       [
         ["h", id],
         ["landing", "false"],
         ["welcome", ""],
+        ["welcome_title", ""],
       ],
       [
         ["h", id],
         ["welcome", ""],
         ["landing", "true"],
+        ["welcome_title", ""],
       ],
       [
         ["h", id],
         ["landing", "true"],
         ["welcome", " "],
+        ["welcome_title", ""],
       ],
       [
         ["h", id],
         ["landing", "true"],
         ["welcome", "a\rb"],
+        ["welcome_title", ""],
       ],
       [
         ["h", id],
         ["landing", "true"],
         ["welcome", "", "extra"],
+        ["welcome_title", ""],
       ],
       [
         ["h", id],
         ["landing", "true"],
         ["welcome", ""],
         ["welcome_title", "two\nlines"],
+      ],
+      [
+        ["h", id],
+        ["landing", "true"],
+        ["welcome", ""],
+        ["welcome_title", "line\u2028sep"],
       ],
       [
         ["h", id],

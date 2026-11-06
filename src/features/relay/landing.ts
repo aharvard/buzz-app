@@ -59,14 +59,14 @@ export function welcomeTextProblem(
 }
 
 /** Mirrors the relay's rules for a trimmed, non-default title: one line with
- * no control characters at all. */
+ * no control characters at all, nor the Unicode line and paragraph separators. */
 export function welcomeTitleProblem(
   text: string,
 ): "empty" | "long" | "control" | undefined {
   if (blank(text)) return "empty";
   if ([...text].length > WELCOME_TITLE_MAX_LENGTH) return "long";
   // eslint-disable-next-line no-control-regex
-  if (/[\u0000-\u001f\u007f-\u009f]/.test(text)) return "control";
+  if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(text)) return "control";
   return undefined;
 }
 

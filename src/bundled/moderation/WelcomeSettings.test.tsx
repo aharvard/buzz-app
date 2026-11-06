@@ -82,7 +82,8 @@ function setup({
     async () => {},
   );
   const run = vi.fn<ChannelLifecycleCapability["run"]>(async () => {});
-  const list = { status: "ready", channels: joined };
+  let list = { status: "ready", channels: joined };
+  const rosterListeners = new Set<() => void>();
   const session = {
     viewer: owner,
     media: () => undefined,
@@ -90,7 +91,10 @@ function setup({
     channels: {
       list: () => list,
       ensureList: () => () => {},
-      subscribeList: () => () => {},
+      subscribeList(listener: () => void) {
+        rosterListeners.add(listener);
+        return () => rosterListeners.delete(listener);
+      },
       subscribeDirectory: () => () => {},
       openDirectory: () => rows,
       browseDirectory: () => rows,
@@ -113,6 +117,13 @@ function setup({
       return () => listeners.delete(listener);
     },
   } as unknown as RelayData;
+  /** The relay republished a joined channel's metadata. */
+  const setJoined = (channels: ChannelSummary[]) => {
+    list = { status: "ready", channels };
+    act(() => {
+      for (const listener of rosterListeners) listener();
+    });
+  };
   /** The same community reconnects: a new session generation. */
   const reconnect = () => {
     snapshot = { ...snapshot, generation: snapshot.generation + 1 };
@@ -133,6 +144,7 @@ function setup({
     readLanding,
     setLanding,
     run,
+    setJoined,
     reconnect,
     view,
     user: userEvent.setup(),
@@ -224,7 +236,6 @@ it("requires a channel when none is designated and sends the defaults as empty",
   fireEvent.change(messageField(), {
     target: { value: `${DEFAULT_WELCOME_MESSAGE}\n` },
   });
-  fireEvent.change(titleField(), { target: { value: " Welcome to Primary " } });
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   await user.type(channel(), "town");
   await user.click(await screen.findByRole("option", { name: "Town square" }));
@@ -302,10 +313,58 @@ it("blocks titles the relay would refuse", async () => {
   fireEvent.change(titleField(), { target: { value: "a\tb" } });
   expect(screen.getByText("Use one line of text for the title.")).toBeVisible();
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  fireEvent.change(titleField(), { target: { value: "a\u2028b" } });
+  expect(screen.getByText("Use one line of text for the title.")).toBeVisible();
   fireEvent.change(titleField(), { target: { value: "😀".repeat(120) } });
   expect(screen.getByText("120 of 120 characters")).toBeVisible();
   expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
   expect(setLanding).not.toHaveBeenCalled();
+});
+
+it("resends a published title untouched, even one matching this viewer's default", async () => {
+  // Another viewer may know the community by another name, so the default is
+  // never inferred from the text: only Restore defaults sends it.
+  const { setLanding, user } = setup({
+    landing: {
+      landing: true,
+      welcome: "Hi there",
+      welcomeTitle: "Welcome to Primary",
+      name: "Lobby",
+    },
+  });
+  await waitFor(() => expect(titleField()).toHaveValue("Welcome to Primary"));
+  fireEvent.change(messageField(), { target: { value: "Say hello" } });
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(setLanding).toHaveBeenLastCalledWith(
+      lobby,
+      welcome("Say hello", "Welcome to Primary"),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    ),
+  );
+  await user.click(screen.getByRole("button", { name: "Restore defaults" }));
+  expect(titleField()).toHaveValue("Welcome to Primary");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(setLanding).toHaveBeenLastCalledWith(
+      lobby,
+      welcome(""),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    ),
+  );
+  // Typed back in, the same words are a custom title.
+  fireEvent.change(titleField(), { target: { value: "Welcome to Primary" } });
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(setLanding).toHaveBeenLastCalledWith(
+      lobby,
+      welcome("", "Welcome to Primary"),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    ),
+  );
 });
 
 it("shows the relay's reason and keeps the draft when it refuses", async () => {
@@ -536,6 +595,29 @@ it("sets a starter's flag through the channel lifecycle and holds other changes 
     expect.any(Function),
   );
   await waitFor(() => expect(starter("Town square")).not.toBeChecked());
+});
+
+it("follows the roster for a joined channel instead of its own confirmed state", async () => {
+  const unlisted: ChannelSummary = {
+    id: "66666666-6666-4666-8666-666666666666",
+    name: "Unlisted",
+    channelType: "stream",
+    visibility: "public",
+  };
+  const { run, setJoined, user } = setup({ joined: [unlisted] });
+  await waitFor(() => expect(channel()).toHaveValue("Lobby"));
+  await user.click(starter("Unlisted"));
+  await waitFor(() => expect(run).toHaveBeenCalledOnce());
+  // The readback republishes the joined channel; that is what the row shows.
+  await waitFor(() =>
+    expect(starter("Unlisted")).not.toHaveAttribute("aria-busy"),
+  );
+  expect(starter("Unlisted")).not.toBeChecked();
+  setJoined([{ ...unlisted, autoJoin: true }]);
+  expect(starter("Unlisted")).toBeChecked();
+  // Another admin's later change shows too; nothing kept here overrides it.
+  setJoined([unlisted]);
+  expect(starter("Unlisted")).not.toBeChecked();
 });
 
 it("explains a starter change that failed beside its row", async () => {
