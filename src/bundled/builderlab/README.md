@@ -235,10 +235,11 @@ access. Live development signs in through the development broker instead. A
 build with neither has no Builderlab: the plugin registers nothing.
 
 The login snapshot retains `capabilities.can_use_remote_agents`; only explicit
-`true` enables remote agents. Otherwise, Harness defaults shows only
-“Unavailable for this account,” and no Beekeeper requests are sent. Account
-management stays in Builderlab Settings. Sign out and back in to refresh
-this capability.
+`true` enables remote agents. Otherwise, Harness defaults and Builderlab Settings
+show “Unavailable for this account”; the provider dialog explains the same
+restriction. The Harness defaults row has no action. Account management stays in
+Settings → Builderlab, and no Beekeeper requests are sent. Sign out and back in
+to refresh this capability.
 
 The plugin also offers Builderlab as a Decisions API provider. It reads
 `capabilities.can_use_builderlab_decisions` the same way, but only explicit
