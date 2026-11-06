@@ -568,7 +568,10 @@ available rather than silently discarding it.
   **Add to Buzz**), opens **Create agent** filled in with the card's name,
   picture and instructions, on desktop and mobile. Nothing is created until you
   review it and choose **Create agent**. Choose the harness and model yourself;
-  instructions go to harnesses that keep them.
+  instructions go to harnesses that keep them. On desktop, a Builderlab card's
+  share link in a message shows the agent's picture and name; hovering it
+  offers **Add to Buzz**, which opens that same Create agent. Clicking the link
+  still opens its page.
 - An agent's name and picture identify it. Instructions shape its response
   style, tasks, initiative, and boundaries. They do not add tools, credentials,
   or permissions. Saving instructions affects future work, not past messages.
