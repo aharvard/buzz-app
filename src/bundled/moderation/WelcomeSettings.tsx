@@ -165,9 +165,14 @@ type Draft = Readonly<{
   title?: string | null;
 }>;
 
-/** The options whose names match `needle`, best first; all for no needle. */
+/** Browsing with no search lists this many channels by name; a search covers
+ * every channel, so a community with thousands still opens a short list. */
+const BROWSE_LIMIT = 50;
+
+/** The options whose names match `needle`, best first; for no needle, the
+ * first {@link BROWSE_LIMIT} by name. */
 function ranked(options: readonly Option[], needle: string) {
-  if (!needle) return options;
+  if (!needle) return options.slice(0, BROWSE_LIMIT);
   return options
     .flatMap((option) => {
       const rank = matchName(option.name, needle)?.rank;
@@ -175,6 +180,19 @@ function ranked(options: readonly Option[], needle: string) {
     })
     .sort((a, b) => a.rank - b.rank)
     .map(({ option }) => option);
+}
+
+/** Follows the results of a browse that {@link ranked} cut short. Like the
+ * popup's empty line it stays mounted while the popup is open, so clearing a
+ * search announces it. */
+function BrowseLimit({ capped }: { capped: boolean }) {
+  return (
+    <div role="status" className="buzz-combobox-empty">
+      {capped
+        ? `Showing the first ${BROWSE_LIMIT} channels. Type a name to find more.`
+        : null}
+    </div>
+  );
 }
 
 /** Open, active stream channels: the directory's, joined ones it may leave
@@ -261,7 +279,6 @@ function WelcomeEditor({
     };
   }, []);
   // Each open reads the live designation, then its signed welcome.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: An explicit retry reruns this finite read.
   useEffect(() => {
     const reading = new AbortController();
     // A check keeps the published form in view; only the first read waits.
@@ -520,6 +537,9 @@ function WelcomeEditor({
                       </Combobox.Item>
                     )}
                   </Combobox.List>
+                  <BrowseLimit
+                    capped={!needle && options.length > BROWSE_LIMIT}
+                  />
                 </Combobox.Popup>
               </Combobox.Root>
               {directory.error && (
@@ -718,6 +738,8 @@ function StarterChannels({
   );
   const [addError, setAddError] =
     useState<Readonly<{ id: string; message: string }>>();
+  // The last confirmed change, announced until the next one starts.
+  const [notice, setNotice] = useState<string>();
   const operation = useRef<AbortController>(undefined);
   useEffect(() => () => operation.current?.abort(), []);
   // A kept state is dropped once the row agrees, or turns out to be joined.
@@ -726,8 +748,10 @@ function StarterChannels({
       let next: Map<string, boolean> | undefined;
       for (const [id, enabled] of current) {
         const row = channels.find((channel) => channel.id === id);
-        if (row && (row.joined || row.autoJoin === enabled))
-          (next ??= new Map(current)).delete(id);
+        if (row && (row.joined || row.autoJoin === enabled)) {
+          next ??= new Map(current);
+          next.delete(id);
+        }
       }
       return next ?? current;
     });
@@ -747,13 +771,14 @@ function StarterChannels({
   }, [channels, welcomeChannel?.id, confirmed, change?.id]);
   const needle = typed.trim().toLowerCase();
   const matches = useMemo(() => ranked(addable, needle), [addable, needle]);
+  const capped = !needle && addable.length > BROWSE_LIMIT;
   const failedAdd =
     addError && !starters.some((channel) => channel.id === addError.id)
       ? `#${channels.find((channel) => channel.id === addError.id)?.name ?? addError.id.slice(0, 8)}: ${addError.message}`
       : undefined;
   const busy = saving || change !== undefined || !lifecycle.available;
   const toggle = async (
-    { id }: Option,
+    { id, name }: Option,
     enabled: boolean,
     trigger?: HTMLElement,
   ) => {
@@ -762,6 +787,7 @@ function StarterChannels({
     operation.current = controller;
     setChange({ id, enabled });
     onPendingChange(id);
+    setNotice(undefined);
     if (enabled) setAddError(undefined);
     setErrors((current) => {
       const next = new Map(current);
@@ -779,6 +805,7 @@ function StarterChannels({
       if (trigger && document.activeElement === trigger)
         addInput.current?.focus({ preventScroll: true });
       setConfirmed((current) => new Map(current).set(id, enabled));
+      setNotice(`${enabled ? "Added" : "Removed"} #${name}`);
     } catch (reason) {
       if (controller.signal.aborted) return;
       // Setting the same value again is idempotent, so retrying is the check.
@@ -802,8 +829,8 @@ function StarterChannels({
       : failed
         ? undefined
         : welcomeChannel
-          ? "No other channels yet"
-          : "No channels yet";
+          ? "No other channels added yet"
+          : "No channels added yet";
   return (
     <section aria-labelledby={heading} className={styles.preview}>
       <InlineHeader
@@ -852,7 +879,9 @@ function StarterChannels({
               </Fragment>
             );
           })}
-          {empty && <PreferenceRow title={empty} />}
+          {empty && (
+            <PreferenceRow title={<span role="status">{empty}</span>} />
+          )}
         </SettingsGroup>
       )}
       <Combobox.Root<Option>
@@ -902,6 +931,7 @@ function StarterChannels({
               </Combobox.Item>
             )}
           </Combobox.List>
+          <BrowseLimit capped={capped} />
         </Combobox.Popup>
       </Combobox.Root>
       {failed && retry && (
@@ -910,6 +940,14 @@ function StarterChannels({
             Retry loading channels
           </Button>
         </div>
+      )}
+      {notice && (
+        <ToastNotice
+          title={notice}
+          tone="success"
+          timeout={5000}
+          onDismiss={() => setNotice(undefined)}
+        />
       )}
     </section>
   );

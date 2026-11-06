@@ -270,7 +270,8 @@ revokes all of them, and a pairing unused for 30 days expires.
 - **Starter channels**: in the same **Welcome** settings, owners and admins
   choose which other open channels new members join, even on relays without a
   welcome channel. Only starter channels are listed, each with **Remove**;
-  **Add a channel** searches the others. A change applies to people who join
+  **Add a channel** searches the others. Until you type a name, this picker and
+  the welcome channel picker list the first 50 channels. A change applies to people who join
   afterwards, not to current members; in an open community it also adds
   returning people who were never in that channel. Archiving a starter channel
   or making it private pauses it until it is public again.

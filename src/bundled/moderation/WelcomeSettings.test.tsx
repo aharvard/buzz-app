@@ -77,11 +77,13 @@ function setup({
   info = { policy: null, landingChannels: true, landingChannel: lobby },
   landing = { landing: true, welcome: "Hi there", name: "Lobby" },
   joined = [],
+  directory = rows,
 }: {
   info?: CommunityInfo;
   landing?: ChannelLanding | undefined;
   /** The viewer's own channels, beside the directory. */
   joined?: ChannelSummary[];
+  directory?: typeof rows;
 } = {}) {
   const readLanding = vi.fn(async () => landing);
   const setLanding = vi.fn<ChannelLifecycleCapability["setLanding"]>(
@@ -102,8 +104,8 @@ function setup({
         return () => rosterListeners.delete(listener);
       },
       subscribeDirectory: () => () => {},
-      openDirectory: () => rows,
-      browseDirectory: () => rows,
+      openDirectory: () => directory,
+      browseDirectory: () => directory,
       readDirectory: async () => ({ partial: false }),
       directoryComplete: () => true,
     },
@@ -250,13 +252,15 @@ it("writes toolbar formatting and a pasted channel link into the message as Mark
   );
 });
 
+const publishedMarkdown = [
+  "**Welcome** to _Primary_",
+  "",
+  `- Say hi in [#Town square](buzz://channel/${square})`,
+  `- Ask [@Ada](${profileTarget("a".repeat(64))}) anything`,
+].join("\n");
+
 it("opens published Markdown as its source and sends it back unchanged", async () => {
-  const markdown = [
-    "**Welcome** to _Primary_",
-    "",
-    `- Say hi in [#Town square](buzz://channel/${square})`,
-    `- Ask [@Ada](${profileTarget("a".repeat(64))}) anything`,
-  ].join("\n");
+  const markdown = publishedMarkdown;
   const { setLanding, user } = setup({
     landing: { landing: true, welcome: markdown, name: "Lobby" },
   });
@@ -282,6 +286,40 @@ it("opens published Markdown as its source and sends it back unchanged", async (
     expect(setLanding).toHaveBeenCalledWith(
       lobby,
       welcome(`${markdown}!`),
+      expect.any(AbortSignal),
+      expect.any(Function),
+    ),
+  );
+});
+
+it("bolds one word inside published Markdown and keeps the rest of the source", async () => {
+  const markdown = publishedMarkdown;
+  const { setLanding, user } = setup({
+    landing: { landing: true, welcome: markdown, name: "Lobby" },
+  });
+  await waitFor(() => expect(messageField()).toHaveValue(markdown));
+  const input = messageField() as ComposerInputElement;
+  const word = "anything";
+  const start = markdown.indexOf(word);
+  act(() => {
+    input.focus();
+    input.setSelectionRange(start, start + word.length);
+    document.dispatchEvent(new Event("selectionchange"));
+  });
+  // A pointer click keeps the selection in the editor.
+  await user.click(screen.getByRole("button", { name: "Toggle formatting" }));
+  await user.click(screen.getByRole("button", { name: "Bold" }));
+  expect(input).toHaveFocus();
+  expect(
+    [...input.querySelectorAll("strong")].map((node) => node.textContent),
+  ).toContain(word);
+  // Only the selected word changes; the emphasis, list and links around it
+  // are sent as they were published.
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() =>
+    expect(setLanding).toHaveBeenCalledWith(
+      lobby,
+      welcome(markdown.replace(word, `**${word}**`)),
       expect.any(AbortSignal),
       expect.any(Function),
     ),
@@ -662,6 +700,45 @@ it("lists only the starter channels, the welcome channel fixed first", async () 
   expect(options[0]?.querySelector("svg")).not.toBeNull();
 });
 
+it("browses the first 50 channels by name in both pickers and finds the rest by searching", async () => {
+  // Sixty more public channels, each sorting before the fixture's own.
+  const many = Array.from({ length: 60 }, (_, index) => {
+    const n = String(index + 1).padStart(2, "0");
+    return {
+      id: `aaaaaa${n}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`,
+      name: `Channel ${n}`,
+      channelType: "stream" as const,
+    };
+  });
+  const { user } = setup({ directory: [...rows, ...many] });
+  const hint = "Showing the first 50 channels. Type a name to find more.";
+  const names = () =>
+    screen.getAllByRole("option").map((option) => option.textContent);
+  await waitFor(() => expect(channel()).toHaveValue("Lobby"));
+  // The welcome channel picker: 63 eligible channels, the first 50 shown.
+  await user.click(screen.getByRole("button", { name: "Browse channels" }));
+  await waitFor(() => expect(names()).toHaveLength(50));
+  expect(names()[0]).toBe("Channel 01");
+  expect(names()[49]).toBe("Channel 50");
+  expect(screen.getByText(hint)).toBeVisible();
+  // A search covers every channel, including those past the first 50.
+  await user.clear(channel());
+  await user.type(channel(), "town");
+  await waitFor(() => expect(names()).toEqual(["Town square"]));
+  expect(screen.queryByText(hint)).toBeNull();
+  await user.keyboard("{Escape}");
+  // The starter search: 61 addable channels, without the welcome or a starter.
+  await user.click(
+    screen.getByRole("button", { name: "Browse channels to add" }),
+  );
+  await waitFor(() => expect(names()).toHaveLength(50));
+  expect(names()[0]).toBe("Channel 01");
+  expect(screen.getByText(hint)).toBeVisible();
+  await user.type(addField(), "random");
+  await waitFor(() => expect(names()).toEqual(["Random"]));
+  expect(screen.queryByText(hint)).toBeNull();
+});
+
 it("adds a starter from the search through the channel lifecycle, listed while the relay confirms", async () => {
   const { run, user } = setup();
   await waitFor(() => expect(channel()).toHaveValue("Lobby"));
@@ -693,6 +770,7 @@ it("adds a starter from the search through the channel lifecycle, listed while t
     await act(async () => settle());
   }
   // The confirmed flag keeps the row; the directory is not yet republished.
+  expect(await screen.findByText("Added #Random")).toBeInTheDocument();
   expect(within(starters()).queryByText("Adding…")).toBeNull();
   expect(remove("Random")).toBeEnabled();
   expect(remove("Town square")).toBeEnabled();
@@ -732,7 +810,10 @@ it("removes a starter through the channel lifecycle, keeping its row until the r
   expect(removable("Town square")).toBeNull();
   expect(addField()).toHaveFocus();
   expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
-  expect(within(starters()).getByText("No other channels yet")).toBeVisible();
+  expect(await screen.findByText("Removed #Town square")).toBeInTheDocument();
+  expect(within(starters()).getByRole("status")).toHaveTextContent(
+    "No other channels added yet",
+  );
   // Removed, it can be added again.
   await user.click(
     screen.getByRole("button", { name: "Browse channels to add" }),
