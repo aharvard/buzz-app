@@ -27,6 +27,7 @@ export type OpenTarget =
       provider?: string;
       scope?: NavigationScope | null;
       pluginImport?: GitPluginSource;
+      pluginId?: string;
     }>
   | Readonly<{
       version: 1;
@@ -56,8 +57,13 @@ export type OpenTarget =
       messageId?: string;
       /** Hint only. Resolve the actual root from verified message evidence. */
       threadRootId?: string;
+      /** With threadRootId: the thread opens beside that root, revealed in the
+       * channel timeline even beyond its newest page, as Open in channel asks. */
+      context?: "channel";
       /** Presentation within this conversation; never mutation or confirmation state. */
       panel?: "members";
+      /** Message selected for the forwarding dialog; never submission state. */
+      forward?: string;
       /** Read-only content selected beside this conversation; never an action. */
       detail?: Readonly<{ target: string; rootId?: string }>;
     }>;
@@ -240,10 +246,15 @@ export function parseOpenTarget(input: unknown): OpenTarget {
           "provider",
           "scope",
           "pluginImport",
+          "pluginId",
         ]);
         if (value.provider !== undefined && value.section !== "agents")
           throw invalid();
         if (value.pluginImport !== undefined && value.section !== "plugins")
+          throw invalid();
+        if (value.pluginId !== undefined && value.section !== "plugins")
+          throw invalid();
+        if (value.pluginId !== undefined && value.pluginImport !== undefined)
           throw invalid();
         target = {
           version: 1,
@@ -259,6 +270,9 @@ export function parseOpenTarget(input: unknown): OpenTarget {
             : {}),
           ...(value.pluginImport !== undefined
             ? { pluginImport: parseGitPluginSource(value.pluginImport) }
+            : {}),
+          ...(value.pluginId !== undefined
+            ? { pluginId: text(value.pluginId) }
             : {}),
         };
         break;
@@ -324,10 +338,17 @@ export function parseOpenTarget(input: unknown): OpenTarget {
           "channelId",
           "messageId",
           "threadRootId",
+          "context",
           "panel",
+          "forward",
           "detail",
         ]);
         if (value.threadRootId !== undefined && value.messageId === undefined)
+          throw invalid();
+        if (
+          value.context !== undefined &&
+          (value.context !== "channel" || value.threadRootId === undefined)
+        )
           throw invalid();
         if (
           value.panel !== undefined &&
@@ -361,7 +382,11 @@ export function parseOpenTarget(input: unknown): OpenTarget {
           ...(value.threadRootId !== undefined
             ? { threadRootId: text(value.threadRootId, hex).toLowerCase() }
             : {}),
+          ...(value.context === "channel" ? { context: value.context } : {}),
           ...(value.panel === "members" ? { panel: value.panel } : {}),
+          ...(value.forward !== undefined
+            ? { forward: text(value.forward, hex).toLowerCase() }
+            : {}),
           ...(detail ? { detail } : {}),
         };
         break;

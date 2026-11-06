@@ -15,6 +15,20 @@ const conversation = {
 } as const;
 
 describe("open target boundary", () => {
+  it("bounds a scoped forwarding presentation independently of its underlying message", () => {
+    const target = parseOpenTarget({
+      ...conversation,
+      forward: "D".repeat(64),
+    });
+    expect(target).toEqual({
+      ...parseOpenTarget(conversation),
+      forward: "d".repeat(64),
+    });
+    expect(targetKey(target)).not.toBe(targetKey(conversation));
+    expect(() =>
+      parseOpenTarget({ ...conversation, forward: "invalid" }),
+    ).toThrow();
+  });
   it("bounds nested provider addresses to Agent setup and keeps their scope", () => {
     const target = {
       version: 1,
@@ -66,6 +80,12 @@ describe("open target boundary", () => {
     expect(targetKey(target)).not.toBe(targetKey(conversation));
     expect(Object.isFrozen(target)).toBe(true);
     expect(() => parseOpenTarget({ ...target, scope: undefined })).toThrow();
+  });
+  it("keeps Open in channel's thread context as its own visit", () => {
+    const thread = { ...conversation, threadRootId: "C".repeat(64) };
+    const target = parseOpenTarget({ ...thread, context: "channel" });
+    expect(target).toEqual({ ...parseOpenTarget(thread), context: "channel" });
+    expect(targetKey(target)).not.toBe(targetKey(thread));
   });
   it("opens a saved Shared sessions target as its conversation", () => {
     const target = parseOpenTarget({
@@ -138,6 +158,9 @@ describe("open target boundary", () => {
     { ...conversation, panel: { kind: "members", remove: "someone" } },
     { ...conversation, panel: null },
     { ...conversation, messageId: undefined, threadRootId: "b".repeat(64) },
+    // Context names where a thread's root shows; it needs that root.
+    { ...conversation, context: "channel" },
+    { ...conversation, threadRootId: "b".repeat(64), context: "timeline" },
     { ...conversation, channelId: "../../other" },
     { version: 1, kind: "page", pluginId: "a/b", pageId: "board" },
     {
@@ -262,6 +285,27 @@ it("keeps explicit Personal space distinct from an unspecified page scope", () =
   expect(parseOpenTarget(personal)).toEqual(personal);
   expect(targetKey(personal)).not.toBe(targetKey(page));
   expect(() => parseOpenTarget({ ...conversation, scope: null })).toThrow();
+});
+
+it("addresses one installed plugin only within Plugins settings", () => {
+  const target = {
+    version: 1,
+    kind: "settings",
+    section: "plugins",
+    pluginId: "example.notes",
+  };
+  expect(parseOpenTarget(target)).toEqual(target);
+  expect(() => parseOpenTarget({ ...target, section: "profile" })).toThrow();
+  expect(() => parseOpenTarget({ ...target, pluginId: "../bad" })).toThrow();
+  expect(() =>
+    parseOpenTarget({
+      ...target,
+      pluginImport: {
+        repository: "https://example.com/repo",
+        reference: "main",
+      },
+    }),
+  ).toThrow();
 });
 
 it("retains copied Git source fields only on the Plugins settings destination", () => {
