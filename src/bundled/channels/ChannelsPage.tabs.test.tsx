@@ -567,6 +567,7 @@ it("moving the last side app adopts its guest before the dock exit finishes", as
     attach: attached,
     detach: detached,
     setBounds: async () => {},
+    setMediaSuspended: async () => {},
     navigate: async (id, url) => {
       pages.set(id, url);
     },
