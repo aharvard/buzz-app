@@ -30,6 +30,23 @@ describe("matchPerson", () => {
     expect(matchPerson("  Honey", "hon")?.positions).toEqual([2, 3, 4]);
   });
 
+  it("matches the same with shared folds, cold and warm", () => {
+    const folds = new Map<string, string>();
+    for (let n = 0; n < 2; n += 1)
+      for (const [name, query] of [
+        ["ΟΔΥΣΣΕΥΣ", "οδυσσευς"],
+        ["Zoë Ångström", " ANG"],
+        ["Zoë Ångström", "zoe a"],
+        ["Zoë", "zq"],
+        ["Zoë", ""],
+      ] as const)
+        expect(matchPerson(name, query, folds)).toEqual(
+          matchPerson(name, query),
+        );
+    expect(folds.get("Zoë Ångström")).toBe("zoe angstrom");
+    expect(folds.get(" ANG")).toBe(" ang");
+  });
+
   it("normalizes the way it matches", () => {
     expect(normalizeName("  ÉLODIE ")).toBe("elodie");
     expect(foldName("José ")).toBe("jose ");

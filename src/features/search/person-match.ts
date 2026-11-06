@@ -16,7 +16,14 @@ const accent =
 // code point alone keeps a map from folded text back to the name for
 // underlining, and gives the same result as folding the whole name.
 const foldPoint = (char: string) =>
-  char.normalize("NFKD").replace(accent, "").toLowerCase().replace(/ς/g, "σ");
+  // ASCII has no accents, decompositions or final sigma.
+  char < "\x80"
+    ? char.toLowerCase()
+    : char
+        .normalize("NFKD")
+        .replace(accent, "")
+        .toLowerCase()
+        .replace(/ς/g, "σ");
 
 /** A name or query without accents and case. Keeps spaces at the ends. */
 export const foldName = (text: string) => [...text].map(foldPoint).join("");
@@ -114,12 +121,26 @@ export type PersonMatch = {
   positions: number[];
 };
 
-/** How `name` matches `query`, or undefined. An empty query matches at tier 0. */
+/**
+ * How `name` matches `query`, or undefined. An empty query matches at tier 0.
+ * A caller filtering one roster on every key can pass the same `folds`. It
+ * maps any text, name or query, to its `foldName`, so a name that cannot
+ * match is rejected without folding it again.
+ */
 export function matchPerson(
   name: string,
   query: string,
+  folds?: Map<string, string>,
 ): PersonMatch | undefined {
-  const needle = [...normalizeName(query)];
+  let folded = folds?.get(query);
+  if (folded === undefined) {
+    folded = foldName(query);
+    folds?.set(query, folded);
+  }
+  const typed = folded.trim();
+  // Every tier matches a run of the folded name.
+  if (typed && folds?.get(name)?.includes(typed) === false) return undefined;
+  const needle = [...typed];
   // Folded code points of the name, each with the name code points it came
   // from. A code point that folds away (a combining accent) joins the one
   // before it, so an underline never splits a letter from its accent.
@@ -137,6 +158,7 @@ export function matchPerson(
   let end = chars.length;
   while (start < end && space.test(chars[start] ?? "")) start += 1;
   while (end > start && space.test(chars[end - 1] ?? "")) end -= 1;
+  if (folds && !folds.has(name)) folds.set(name, chars.join(""));
   if (!needle.length) return { tier: 0, positions: [] };
   const at = (from: number) =>
     from + needle.length <= end &&
