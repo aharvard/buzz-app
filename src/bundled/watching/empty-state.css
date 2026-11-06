@@ -37,23 +37,14 @@
   text-align: start;
   box-shadow: var(--shadow-xs);
   border: 1.5px solid var(--surface-panel);
-  transition: opacity var(--duration-fast) var(--easing-enter);
-  @starting-style {
-    opacity: 0;
-  }
 }
 
 .attention-empty-theme {
+  position: relative;
   --surface-message-own: var(--accent-4-light);
   --text-message-own: var(--accent-12-light);
 }
 :root[data-color-mode="dark"] .attention-empty-theme {
   --surface-message-own: var(--accent-4-dark);
   --text-message-own: var(--accent-12-dark);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .attention-empty-bubble {
-    transition: none;
-  }
 }

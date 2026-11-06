@@ -236,6 +236,7 @@ test.describe("touch delete actions", () => {
 test("empty Attention retains its card and clustered prompts in the profile host", async ({
   page,
 }, testInfo) => {
+  await page.clock.install();
   await page.goto("/tests/fixtures/agent-attention.html");
   for (const name of ["Release discussion", "example/project#42"]) {
     await page
@@ -255,6 +256,7 @@ test("empty Attention retains its card and clustered prompts in the profile host
   await removeInterest.first().focus();
   await page.keyboard.press("Enter");
   await expect(removeInterest).toHaveCount(1);
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
   await removeInterest.first().focus();
   await page.keyboard.press("Enter");
   const empty = page.getByRole("region", {
@@ -286,4 +288,39 @@ test("empty Attention retains its card and clustered prompts in the profile host
     );
     await page.screenshot({ path: testInfo.outputPath(`empty-${width}.png`) });
   }
+  await page.mouse.move(1200, 850);
+  await page.clock.runFor(5050);
+  const incoming = empty.getByText("Tell me when CI fails on this PR", {
+    exact: true,
+  });
+  const outgoing = empty.getByText("Watch this thread for new messages", {
+    exact: true,
+  });
+  await expect(incoming).toBeAttached();
+  await expect(outgoing).toBeAttached();
+  // WAAPI uses the document timeline, independently of the JS timer clock.
+  await expect
+    .poll(() => incoming.evaluate((el) => el.getAnimations().length))
+    .toBeGreaterThan(0);
+  await incoming.evaluate((el) => {
+    for (const animation of el.getAnimations()) {
+      animation.pause();
+      animation.currentTime = 100;
+    }
+  });
+  const opacity = await incoming.evaluate((el) =>
+    Number(getComputedStyle(el).opacity),
+  );
+  expect(opacity).toBeGreaterThan(0);
+  expect(opacity).toBeLessThan(1);
+  await page.screenshot({
+    path: testInfo.outputPath("example-swap-midpoint.png"),
+  });
+  await empty.evaluate((el) => {
+    for (const animation of el.getAnimations({ subtree: true }))
+      animation.finish();
+  });
+  await page.clock.runFor(300);
+  await expect(outgoing).toHaveCount(0);
+  await expect(incoming).toHaveCSS("opacity", "1");
 });
