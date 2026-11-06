@@ -738,18 +738,21 @@ describe("github_watch_pr", () => {
           );
         setItem.call(this, key, value);
       });
-    app.gh(answer({ checks: [{ name: "unit", conclusion: "SUCCESS" }] }));
-    await vi.advanceTimersByTimeAsync(POLL_MS);
-    app.gh(
-      answer({
-        head: "2222222222",
-        checks: [{ name: "unit", conclusion: "SUCCESS" }],
-      }),
-    );
-    await vi.advanceTimersByTimeAsync(POLL_MS);
-    app.gh(answer({ head: "2222222222", state: "MERGED" }));
-    await vi.advanceTimersByTimeAsync(POLL_MS);
-    full.mockRestore();
+    try {
+      app.gh(answer({ checks: [{ name: "unit", conclusion: "SUCCESS" }] }));
+      await vi.advanceTimersByTimeAsync(POLL_MS);
+      app.gh(
+        answer({
+          head: "2222222222",
+          checks: [{ name: "unit", conclusion: "SUCCESS" }],
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(POLL_MS);
+      app.gh(answer({ head: "2222222222", state: "MERGED" }));
+      await vi.advanceTimersByTimeAsync(POLL_MS);
+    } finally {
+      full.mockRestore();
+    }
     expect(app.texts()).toEqual([
       `CI passed on 111111111 for ${url}.`,
       `CI passed on 222222222 for ${url}.`,
