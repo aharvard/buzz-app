@@ -1305,7 +1305,11 @@ export function createChannelStore(
     profileSave = undefined;
     if (!persistence?.writeProfiles || !profilesRestored || disposed) return;
     const events = directory.recent(PROFILE_CACHE_BASE);
-    const signature = events.map((event) => event.id).join(":");
+    // Sorted, so reads that only reorder the LRU never rewrite the mirror.
+    const signature = events
+      .map((event) => event.id)
+      .sort()
+      .join(":");
     if (signature === mirrored) return;
     mirrored = signature;
     void persistence.writeProfiles(events).catch(() => {
