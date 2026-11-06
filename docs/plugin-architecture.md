@@ -1072,6 +1072,7 @@ Unordered checkbox items in that section are shown, including nested tasks. Nest
 Quotes and fenced examples are not tasks in this view. Doing and checkbox edits
 change one source byte; additions insert below the heading without rewriting other
 content.
+People who can’t write the channel’s Canvas, such as guests, see Todos read-only.
 Duplicate Todos sections block editing until corrected in Canvas. Disabling removes
 the convenience UI, not the saved list: Channel actions → View canvas remains editable.
 

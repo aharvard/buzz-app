@@ -327,7 +327,8 @@ revokes all of them, and a pairing unused for 30 days expires.
 - **Join** in a View only chat or channel adds you as a viewer, with a sidebar
   entry and normal unread tracking. Notifications follow your existing settings
   and mention/thread rules. You appear in People as **Viewing only**; you still
-  cannot post or react. Reading without joining stays available.
+  cannot post, react, or change Canvas or Todos. Reading without joining
+  stays available.
   Use **Leave chat** or **Leave channel** to remove your membership and sidebar
   entry. Joined viewers keep reading after a switch to Private until they leave
   or are removed in People.

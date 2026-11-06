@@ -5,6 +5,7 @@ import "@testing-library/jest-dom/vitest";
 import {
   act,
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -15,8 +16,11 @@ import { StrictMode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { keypair, signed } from "../../features/relay/testing";
 import { publicKeyLabels } from "../../shared/identity/public-key";
-import { readView } from "../../shared/view-state";
-import type { ChannelList } from "../../features/relay/contracts";
+import { readView, writeView } from "../../shared/view-state";
+import type {
+  ChannelList,
+  ChannelSummary,
+} from "../../features/relay/contracts";
 import { createRelaySession } from "../../features/relay/session";
 import { bindNames } from "../../features/identity-names/service";
 import { agentDirectory } from "../../features/identity-names/testing";
@@ -348,6 +352,131 @@ it("exposes malformed sections and unavailable hosts without permitting writes",
   expect(
     screen.queryByRole("button", { name: /^Retry$/ }),
   ).not.toBeInTheDocument();
+});
+function listedAs(access: Partial<ChannelSummary>) {
+  let roster: ChannelList = {
+    status: "ready",
+    channels: [{ id: context.channelId, name: "Team", members: [], ...access }],
+  };
+  const listeners = new Set<() => void>();
+  return {
+    people: {
+      ...people,
+      channels: {
+        ...people.channels,
+        list: () => roster,
+        subscribeList: (listener: () => void) => {
+          listeners.add(listener);
+          return () => {
+            listeners.delete(listener);
+          };
+        },
+      },
+    },
+    update(next: ChannelList) {
+      roster = next;
+      act(() => {
+        for (const listener of listeners) listener();
+      });
+    },
+  };
+}
+it.each<Partial<ChannelSummary>>([
+  { readOnly: true, viewerRole: "guest" },
+  { archived: true },
+])("shows Todos read-only without Canvas write access: %o", async (access) => {
+  const f = fixture(),
+    user = userEvent.setup();
+  render(<TodosPanel {...f.props} people={listedAs(access).people} />);
+  const first = await screen.findByRole("checkbox", { name: "First" });
+  expect(screen.getByRole("textbox", { name: "New todo" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /^Add$/ })).toBeDisabled();
+  expect(first).toHaveAttribute("aria-disabled", "true");
+  expect(
+    screen.getByRole("button", { name: "Status for First" }),
+  ).toBeDisabled();
+  expect(
+    within(
+      screen.getByRole("group", { name: /^Assignee for First/ }),
+    ).getByRole("button"),
+  ).toBeDisabled();
+  expect(screen.getByText("Todos are read-only.")).toHaveAttribute(
+    "role",
+    "status",
+  );
+  await user.click(first);
+  expect(first).not.toBeChecked();
+  expect(f.canvas.save).not.toHaveBeenCalled();
+  expect(
+    screen.queryByRole("button", { name: /^Retry$/ }),
+  ).not.toBeInTheDocument();
+});
+it("keeps a stored draft while read-only and offers Retry when writing returns", async () => {
+  const f = fixture(),
+    user = userEvent.setup();
+  const key = `todos-draft-v1:${context.channelId}`;
+  const draft = {
+    content: original.replace("[ ] First", "[x] First"),
+    original,
+    base: head.id,
+    input: "Still typing",
+  };
+  writeView(context.scope, key, draft);
+  // Startup: the channel is unlisted, then listed from cached membership.
+  const roster = listedAs({});
+  roster.update({ status: "loading", channels: [] });
+  render(<TodosPanel {...f.props} people={roster.people} />);
+  expect(await screen.findByRole("checkbox", { name: "First" })).toBeChecked();
+  expect(
+    screen.getByText("Showing your unsaved local draft."),
+  ).toBeInTheDocument();
+  expect(readView(context.scope, key, null)).toEqual(draft);
+  roster.update({
+    status: "ready",
+    channels: [
+      {
+        id: context.channelId,
+        name: "Team",
+        members: [],
+        readOnly: true,
+        cached: true,
+      },
+    ],
+  });
+  expect(screen.getByText("Showing your unsaved local draft.")).toHaveAttribute(
+    "role",
+    "status",
+  );
+  expect(
+    screen.queryByRole("button", { name: /^Retry$/ }),
+  ).not.toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  const input = screen.getByRole("textbox", { name: "New todo" });
+  expect(input).toHaveValue("Still typing");
+  // Enter in the field submits this form; it must not reach a Canvas write.
+  fireEvent.submit(input);
+  expect(f.canvas.save).not.toHaveBeenCalled();
+  expect(readView(context.scope, key, null)).toEqual(draft);
+  roster.update({
+    status: "ready",
+    channels: [{ id: context.channelId, name: "Team", members: [] }],
+  });
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Recovered unsaved changes. Retry to save them to Canvas.",
+  );
+  expect(screen.queryByText("Todos are read-only.")).not.toBeInTheDocument();
+  expect(
+    screen.queryByText("Showing your unsaved local draft."),
+  ).not.toBeInTheDocument();
+  await user.click(retry());
+  await saved();
+  expect(f.canvas.save).toHaveBeenCalledExactlyOnceWith(
+    context.channelId,
+    draft.content,
+    head.id,
+    { preserveApproval: true },
+  );
+  expect(input).toHaveValue("Still typing");
 });
 
 it("rebases an input-only recovery draft without discarding the typed item", async () => {
