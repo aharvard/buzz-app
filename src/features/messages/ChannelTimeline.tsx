@@ -15,7 +15,6 @@ import {
   withoutStartingAgents,
 } from "./membership-rows";
 import {
-  activityDisplayRows,
   useActivityPresentation,
   useStableRowActivity,
 } from "./activity-presentation";
@@ -46,6 +45,7 @@ import type {
   ChannelWindow,
 } from "../relay/contracts";
 import { useRowProfiles } from "../relay/react";
+import { useRecovery } from "../relay/RecoveryNotice";
 import { geometryFor, geometrySignature } from "./geometry";
 import { readView, writeView } from "../../shared/view-state";
 import styles from "./Messages.module.css";
@@ -127,6 +127,8 @@ const visitBoundaries = new WeakMap<
 >();
 const unknownUnreadSync = Object.freeze({ completeness: "unknown" as const });
 const TIMELINE_PLACE = "timeline";
+// Older pages a visit reads unasked to fill a screen its head leaves empty.
+const FILL_PAGES = 5;
 function positionAt(
   element: HTMLElement,
   restoredAnchor?: string,
@@ -560,8 +562,6 @@ function Timeline({
     chronologicalRows,
     queries.agentActivity,
     agentPubkeys,
-    undefined,
-    pinnedIds,
   );
   const activity = presentation.groups;
   const stableActivity = useStableRowActivity();
@@ -592,24 +592,7 @@ function Timeline({
     (navigation?.target.kind === "conversation" && !returning
       ? navigation.target.messageId
       : undefined);
-  // Activity updates rebuild the hidden-row filter without changing its
-  // result; keep the same rows so positioning effects keyed on them stay idle.
-  const displayedRows = useRef(chronologicalRows);
-  const rows = useMemo(() => {
-    const next = activityDisplayRows(
-      chronologicalRows,
-      activity,
-      targetId ?? revealMessageId,
-    );
-    const prior = displayedRows.current;
-    if (
-      next.length === prior.length &&
-      next.every((row, index) => row === prior[index])
-    )
-      return prior;
-    displayedRows.current = next;
-    return next;
-  }, [chronologicalRows, activity, targetId, revealMessageId]);
+  const rows = chronologicalRows;
   const lastPublicMessage = publicMessageNeighbor(rows, rows.length, -1);
   const intent = useRef(0);
   // Keep expansion pending with scroll restoration until the saved row arrives.
@@ -629,24 +612,18 @@ function Timeline({
     }
   }
   const disclosures = new Map(
-    activity
-      .filter((group) => !group.hidden || group.retained)
-      .map((group) => [
-        group.ids[0],
-        {
-          ...group,
-          expanded: group.ids.some((id) => expandedActivity.has(id)),
-        },
-      ]),
+    activity.map((group) => [
+      group.ids[0],
+      {
+        ...group,
+        expanded: group.ids.some((id) => expandedActivity.has(id)),
+      },
+    ]),
   );
   const containedOwnerCache = useRef(new Map<string, string | undefined>());
   const nextContainedOwners = new Map(
     activity
-      .filter(
-        (group) =>
-          (!group.hidden || group.retained) &&
-          group.ids.some((id) => expandedActivity.has(id)),
-      )
+      .filter((group) => group.ids.some((id) => expandedActivity.has(id)))
       .flatMap((group) => group.ids.map((id) => [id, group.ids[0]] as const)),
   );
   // Profile/status refreshes can rebuild the projection without moving rows.
@@ -726,6 +703,11 @@ function Timeline({
     return () => observer.disconnect();
   }, []);
   useMessageSelection(scroller, rows, queries);
+  // While the connection recovers, its notice is the one report, so the
+  // history edge does not repeat the reason. Recovery does not retry older
+  // history, and paging stops on a failed read, so Retry stays either way.
+  const { recovering } = useRecovery(queries.recovery);
+  const edgeError = recovering ? undefined : window.error;
   // Keep pagination space through EOF so removing its control cannot change
   // Virtua's start margin in the same measurement cycle as a prepend.
   const [reserveHistorySpace, setReserveHistorySpace] = useState(false);
@@ -778,6 +760,9 @@ function Timeline({
     viewport: number;
   } | null>(null);
   const olderDemand = useRef(false);
+  // A page read to fill the opening screen lands as part of that opening: the
+  // follower's bottom positioning owns it, not prepend anchoring.
+  const fillLanding = useRef(false);
   const settled = useRef(false),
     userScrolled = useRef(false),
     follow = useRef(true);
@@ -1454,9 +1439,12 @@ function Timeline({
       (revealIndex < 0 &&
         settled.current &&
         (!follow.current ||
-          (prepend && pendingRestore.current !== intent.current)))
+          (prepend &&
+            pendingRestore.current !== intent.current &&
+            !fillLanding.current)))
     )
       return;
+    if (prepend) fillLanding.current = false;
     // A send supersedes saved reading intent before the first scroll event.
     // This effect also retains its height observer through late measurements.
     if (revealIndex >= 0 && revealMessageId) {
@@ -1670,6 +1658,66 @@ function Timeline({
     if (olderDemand.current && scroller.current)
       loadNearTop(scroller.current, true);
   }, [loadNearTop]);
+  // A head of folded agent activity can paint less than a screen, leaving no
+  // range to scroll: no reader input would ask for older history. A settled
+  // reader at the bottom fills it from verified history, a few pages a visit.
+  // Past that, or after a failed read, the edge control and gestures page.
+  const fillPages = useRef(0);
+  const fillFrame = useRef<number | undefined>(undefined);
+  const fillViewport = useCallback(() => {
+    const element = scroller.current;
+    if (
+      !element ||
+      !settled.current ||
+      !follow.current ||
+      pendingRestore.current === intent.current ||
+      pendingReveal.current ||
+      (targetId && revealedSignal !== targetSignal) ||
+      fillPages.current >= FILL_PAGES ||
+      recovering ||
+      queries.channels.cachedOnly ||
+      window.freshness === "cached" ||
+      window.status !== "ready" ||
+      !window.hasMore ||
+      window.historyLimited ||
+      window.loadingOlder ||
+      window.error ||
+      element.scrollHeight > element.clientHeight
+    )
+      return;
+    queries.channels.loadOlder(channelId);
+    if (!queries.channels.window(channelId).loadingOlder) return;
+    fillPages.current++;
+    fillLanding.current = true;
+  }, [
+    window,
+    queries,
+    channelId,
+    recovering,
+    targetId,
+    targetSignal,
+    revealedSignal,
+  ]);
+  // After positioning's frame, and again once Virtua measures estimated rows.
+  const scheduleFill = useCallback(() => {
+    if (fillFrame.current !== undefined)
+      cancelAnimationFrame(fillFrame.current);
+    fillFrame.current = requestAnimationFrame(() => {
+      fillFrame.current = undefined;
+      fillViewport();
+    });
+  }, [fillViewport]);
+  // Window updates carry each page; positioning settles once the viewport is
+  // measured.
+  useLayoutEffect(() => {
+    if (!size.height) return;
+    scheduleFill();
+    return () => {
+      if (fillFrame.current !== undefined)
+        cancelAnimationFrame(fillFrame.current);
+      fillFrame.current = undefined;
+    };
+  }, [scheduleFill, size]);
   const gesture = (upward = false) => {
     const restoring = pendingRestore.current === intent.current;
     restoredAnchor.current = undefined;
@@ -1804,9 +1852,11 @@ function Timeline({
         className={styles.edge}
         data-history-space={reserveHistorySpace || undefined}
       >
-        {window.error && <span role="alert">{window.error}</span>}
+        {edgeError && <span role="alert">{edgeError}</span>}
         {window.historyLimited ? (
           <span>History window limit reached</span>
+        ) : window.hasMore && queries.channels.cachedOnly ? (
+          <span>You can load older messages once Buzz reconnects.</span>
         ) : window.hasMore && (historyControl === "button" || window.error) ? (
           <Button
             type="button"
@@ -1844,6 +1894,7 @@ function Timeline({
           // Reflow must not evict the focused control or a row's open report.
           keepMounted={keptIndices}
           onResize={() => {
+            scheduleFill();
             const element = scroller.current;
             // Rows can measure after native scrollend without moving the
             // scroll offset. Do not carry their estimated Y into the next hold.

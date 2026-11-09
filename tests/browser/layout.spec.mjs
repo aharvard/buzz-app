@@ -27,7 +27,9 @@ import {
 } from "./timeline.mjs";
 
 // These layout/navigation journeys exercise opt-in page surfaces.
-test.use({ enabledPlugins: ["buzz.bestie", "buzz.workflows"] });
+test.use({
+  enabledPlugins: ["buzz.bestie", "buzz.workflows", "buzz.drafts-and-sent"],
+});
 
 const scroll = test.extend({ historyCounts: { alpha: 20, beta: 1 } });
 const companionTest = test.extend({ companionFixture: true });
@@ -856,7 +858,9 @@ companionTest(
     });
     const resizedWidth = async () =>
       Number(await resize.getAttribute("aria-valuenow"));
-    const defaultWidth = await resizedWidth();
+    // Visibility can precede PanelFrame measurement; its initial minimum is 300.
+    const defaultWidth = 420;
+    await expect.poll(resizedWidth).toBe(defaultWidth);
     const composer = page.getByRole("textbox", {
       name: "Message #Alpha",
       exact: true,
